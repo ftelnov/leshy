@@ -1,0 +1,15 @@
+# Corporate VPN Zone
+# Managed by VPN team
+
+[[zones]]
+name = "corporate"
+dns_servers = ["10.44.2.2:53", "10.44.2.4:53", "10.44.2.5:53"]
+route_type = "dev"
+route_target = "/run/vpn/corporate.dev"
+domains = [
+    "internal.company.com",
+    "jira.company.com",
+    "confluence.company.com",
+    "gitlab.company.com"
+]
+patterns = ["corp", "internal"]

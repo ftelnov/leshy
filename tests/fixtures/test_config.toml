@@ -1,0 +1,12 @@
+[server]
+listen_address = "127.0.0.1:15353"
+default_upstream = ["8.8.8.8:53"]
+route_failure_mode = "fallback"
+
+[[zones]]
+name = "test-zone"
+dns_servers = []
+route_type = "via"
+route_target = "192.168.100.1"
+domains = ["example.com"]
+patterns = ["test"]

@@ -1,0 +1,14 @@
+# Office Network Zone
+# For local office services
+
+[[zones]]
+name = "office"
+dns_servers = ["192.168.1.1:53"]
+route_type = "via"
+route_target = "192.168.1.254"
+domains = [
+    "printer.office.local",
+    "nas.office.local",
+    "camera.office.local"
+]
+patterns = ["office"]

@@ -1,0 +1,50 @@
+# Leshy DNS Server Configuration Example
+
+[server]
+# Address to listen on for DNS queries
+listen_address = "127.0.0.1:15353"
+
+# Default upstream DNS servers (used when no zone matches)
+default_upstream = ["8.8.8.8:53", "8.8.4.4:53"]
+
+# What to do when route addition fails:
+# - "servfail": Return SERVFAIL to client
+# - "fallback": Continue and return DNS response (default, recommended)
+route_failure_mode = "fallback"
+
+# Enable automatic config reload when this file changes
+# When enabled, Leshy will:
+# - Watch this config file for changes
+# - Reload configuration automatically
+# - Remove routes for deleted zones
+# - Start tracking new zones
+auto_reload = true
+
+# Example Zone 1: Corporate VPN with device-based routing
+# Routes traffic through a VPN tunnel device that may connect/disconnect
+[[zones]]
+name = "corporate"
+dns_servers = ["10.44.2.2:53", "10.44.2.4:53"]  # Corporate DNS servers
+route_type = "dev"                               # Route via network device
+route_target = "/run/vpn/corporate.dev"          # File containing device name (e.g., "tun0")
+domains = ["internal.company.com", "jira.company.com"]
+patterns = ["corp"]  # Matches any domain containing "corp"
+
+# Example Zone 2: EU VPN with static gateway
+# Routes traffic through a fixed gateway (always-on VPN)
+[[zones]]
+name = "eu"
+dns_servers = []  # Empty = use default_upstream
+route_type = "via"
+route_target = "192.168.169.1"  # Static VPN gateway IP
+domains = ["chatgpt.com", "github.com"]
+patterns = ["openai", "anthropic"]
+
+# Example Zone 3: Office network
+[[zones]]
+name = "office"
+dns_servers = ["192.168.1.1:53"]
+route_type = "via"
+route_target = "192.168.1.254"
+domains = ["office.local", "printer.local"]
+patterns = []

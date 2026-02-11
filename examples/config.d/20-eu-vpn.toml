@@ -1,0 +1,14 @@
+# EU VPN Zone
+# For accessing geo-restricted services
+
+[[zones]]
+name = "eu"
+dns_servers = []  # Use default upstream
+route_type = "via"
+route_target = "192.168.169.1"
+domains = [
+    "chatgpt.com",
+    "github.com",
+    "claude.ai"
+]
+patterns = ["openai", "anthropic"]

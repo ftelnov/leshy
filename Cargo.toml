@@ -1,0 +1,43 @@
+[package]
+name = "leshy"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# DNS server framework
+hickory-server = "0.24"
+hickory-proto = "0.24"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"
+
+# Configuration
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+
+# Networking
+rtnetlink = "0.14"
+netlink-packet-route = "0.19"
+futures = "0.3"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "1"
+
+# Pattern matching
+regex = "1"
+
+# Async trait
+async-trait = "0.1"
+
+# File watching for config reload
+notify = "6"
+
+[dev-dependencies]
+hickory-client = "0.24"
+tempfile = "3"

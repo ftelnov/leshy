@@ -1,0 +1,14 @@
+# Main Leshy Configuration
+# Server settings are defined here
+# Zones are loaded from config.d/*.toml
+
+[server]
+listen_address = "127.0.0.1:15353"
+default_upstream = ["8.8.8.8:53", "8.8.4.4:53"]
+route_failure_mode = "fallback"
+auto_reload = true
+
+# You can define zones here, but it's cleaner to use config.d/
+# [[zones]]
+# name = "example"
+# ...
