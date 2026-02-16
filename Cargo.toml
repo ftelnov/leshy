@@ -16,9 +16,7 @@ tokio-util = "0.7"
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 
-# Networking
-rtnetlink = "0.14"
-netlink-packet-route = "0.19"
+# Networking (Linux only)
 futures = "0.3"
 
 # Logging
@@ -37,6 +35,10 @@ async-trait = "0.1"
 
 # File watching for config reload
 notify = "6"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+rtnetlink = "0.14"
+netlink-packet-route = "0.19"
 
 [dev-dependencies]
 hickory-client = "0.24"
