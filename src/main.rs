@@ -62,6 +62,18 @@ async fn main() -> anyhow::Result<()> {
     // Create DNS handler (wrapped in Arc for reload)
     let handler = Arc::new(RwLock::new(DnsHandler::new(config.clone(), matcher)?));
 
+    // Apply static routes (and spawn retry loop for dev zones where VPN may not be up yet)
+    {
+        let handler_guard = handler.read().await;
+        let failures = handler_guard.apply_static_routes().await;
+        if failures > 0 && handler_guard.has_static_routes() {
+            let handler_retry = handler.clone();
+            tokio::spawn(async move {
+                retry_static_routes(handler_retry).await;
+            });
+        }
+    }
+
     // Create and start DNS server
     let server = DnsServer::new(config.server.listen_address, handler.clone()).await?;
 
@@ -81,6 +93,7 @@ async fn main() -> anyhow::Result<()> {
         });
 
         // Spawn reload handler task
+        let handler_for_reload = handler.clone();
         tokio::spawn(async move {
             while let Some(new_config) = reload_rx.recv().await {
                 tracing::info!("Applying new configuration");
@@ -111,6 +124,13 @@ async fn main() -> anyhow::Result<()> {
                         {
                             tracing::error!(error = %e, "Failed to update handler config");
                         } else {
+                            let failures = handler_guard.apply_static_routes().await;
+                            if failures > 0 && handler_guard.has_static_routes() {
+                                let handler_retry = handler_for_reload.clone();
+                                tokio::spawn(async move {
+                                    retry_static_routes(handler_retry).await;
+                                });
+                            }
                             tracing::info!(
                                 zones_added = new_zones.len(),
                                 total_zones = new_config.zones.len(),
@@ -130,4 +150,19 @@ async fn main() -> anyhow::Result<()> {
     server.run().await?;
 
     Ok(())
+}
+
+/// Retry applying static routes every 10 seconds until all succeed.
+/// Handles the case where VPN device files don't exist yet at startup.
+async fn retry_static_routes(handler: Arc<RwLock<DnsHandler>>) {
+    loop {
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        let handler_guard = handler.read().await;
+        let failures = handler_guard.apply_static_routes().await;
+        if failures == 0 {
+            tracing::info!("All static routes applied successfully");
+            break;
+        }
+        tracing::debug!(pending = failures, "Some static routes still pending, will retry");
+    }
 }

@@ -155,6 +155,7 @@ mod tests {
                 route_target: "192.168.1.1".to_string(),
                 domains: vec![],
                 patterns: vec![],
+                static_routes: vec![],
             },
             ZoneConfig {
                 name: "zone2".to_string(),
@@ -163,6 +164,7 @@ mod tests {
                 route_target: "192.168.1.1".to_string(),
                 domains: vec![],
                 patterns: vec![],
+                static_routes: vec![],
             },
         ];
 
@@ -173,6 +175,7 @@ mod tests {
             route_target: "192.168.1.1".to_string(),
             domains: vec![],
             patterns: vec![],
+            static_routes: vec![],
         }];
 
         let to_cleanup = get_zones_to_cleanup(&old_zones, &new_zones);
@@ -189,6 +192,7 @@ mod tests {
             route_target: "192.168.1.1".to_string(),
             domains: vec![],
             patterns: vec![],
+            static_routes: vec![],
         }];
 
         let new_zones = vec![
@@ -199,6 +203,7 @@ mod tests {
                 route_target: "192.168.1.1".to_string(),
                 domains: vec![],
                 patterns: vec![],
+                static_routes: vec![],
             },
             ZoneConfig {
                 name: "zone2".to_string(),
@@ -207,6 +212,7 @@ mod tests {
                 route_target: "/tmp/test.dev".to_string(),
                 domains: vec![],
                 patterns: vec![],
+                static_routes: vec![],
             },
         ];
 

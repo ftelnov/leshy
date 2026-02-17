@@ -148,6 +148,32 @@ impl DnsHandler {
         manager.cleanup_zone(zone_name).await
     }
 
+    /// Apply static routes for all zones that have them.
+    /// Returns the number of failed routes (0 = all applied successfully).
+    pub async fn apply_static_routes(&self) -> usize {
+        let route_manager = self.route_manager.read().await;
+        let mut failures = 0;
+        for zone in &self.config.zones {
+            for cidr in &zone.static_routes {
+                if let Err(e) = route_manager.add_static_route(cidr, zone).await {
+                    tracing::warn!(
+                        cidr = cidr,
+                        zone = zone.name,
+                        error = %e,
+                        "Failed to add static route"
+                    );
+                    failures += 1;
+                }
+            }
+        }
+        failures
+    }
+
+    /// Returns true if any zone has static routes configured
+    pub fn has_static_routes(&self) -> bool {
+        self.config.zones.iter().any(|z| !z.static_routes.is_empty())
+    }
+
     /// Update config and matcher (for hot reload)
     pub async fn update_config(
         &mut self,

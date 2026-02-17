@@ -20,15 +20,15 @@ impl LinuxRouteAdder {
 
 #[async_trait]
 impl RouteAdder for LinuxRouteAdder {
-    async fn add_via_route(&self, ip: IpAddr, gateway: &str) -> Result<()> {
+    async fn add_via_route(&self, ip: IpAddr, prefix_len: u8, gateway: &str) -> Result<()> {
         let gateway_ip: IpAddr = gateway.parse().context("Failed to parse gateway IP")?;
 
-        tracing::info!(ip = %ip, gateway = %gateway, "Adding route via gateway");
+        tracing::info!(ip = %ip, prefix_len = prefix_len, gateway = %gateway, "Adding route via gateway");
 
         let route = match ip {
             IpAddr::V4(addr) => {
                 let mut route = self.handle.route().add().v4();
-                route.message_mut().header.destination_prefix_length = 32;
+                route.message_mut().header.destination_prefix_length = prefix_len;
                 route.message_mut().attributes.push(
                     netlink_packet_route::route::RouteAttribute::Destination(RouteAddress::Inet(
                         addr,
@@ -48,7 +48,7 @@ impl RouteAdder for LinuxRouteAdder {
             }
             IpAddr::V6(addr) => {
                 let mut route = self.handle.route().add().v6();
-                route.message_mut().header.destination_prefix_length = 128;
+                route.message_mut().header.destination_prefix_length = prefix_len;
                 route.message_mut().attributes.push(
                     netlink_packet_route::route::RouteAttribute::Destination(RouteAddress::Inet6(
                         addr,
@@ -86,8 +86,8 @@ impl RouteAdder for LinuxRouteAdder {
         }
     }
 
-    async fn add_dev_route(&self, ip: IpAddr, device: &str) -> Result<()> {
-        tracing::info!(ip = %ip, device = device, "Adding route via device");
+    async fn add_dev_route(&self, ip: IpAddr, prefix_len: u8, device: &str) -> Result<()> {
+        tracing::info!(ip = %ip, prefix_len = prefix_len, device = device, "Adding route via device");
 
         let mut links = self
             .handle
@@ -103,7 +103,7 @@ impl RouteAdder for LinuxRouteAdder {
         let route = match ip {
             IpAddr::V4(addr) => {
                 let mut route = self.handle.route().add().v4();
-                route.message_mut().header.destination_prefix_length = 32;
+                route.message_mut().header.destination_prefix_length = prefix_len;
                 route.message_mut().attributes.push(
                     netlink_packet_route::route::RouteAttribute::Destination(RouteAddress::Inet(
                         addr,
@@ -117,7 +117,7 @@ impl RouteAdder for LinuxRouteAdder {
             }
             IpAddr::V6(addr) => {
                 let mut route = self.handle.route().add().v6();
-                route.message_mut().header.destination_prefix_length = 128;
+                route.message_mut().header.destination_prefix_length = prefix_len;
                 route.message_mut().attributes.push(
                     netlink_packet_route::route::RouteAttribute::Destination(RouteAddress::Inet6(
                         addr,

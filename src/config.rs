@@ -63,6 +63,10 @@ pub struct ZoneConfig {
     /// Substring pattern matches
     #[serde(default)]
     pub patterns: Vec<String>,
+
+    /// Static IP/CIDR routes to add on startup (e.g. "149.154.160.0/20", "1.2.3.4")
+    #[serde(default)]
+    pub static_routes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -179,9 +183,9 @@ impl Config {
 
         // Validate zones
         for zone in &self.zones {
-            if zone.domains.is_empty() && zone.patterns.is_empty() {
+            if zone.domains.is_empty() && zone.patterns.is_empty() && zone.static_routes.is_empty() {
                 anyhow::bail!(
-                    "Zone '{}' must have at least one domain or pattern",
+                    "Zone '{}' must have at least one domain, pattern, or static route",
                     zone.name
                 );
             }

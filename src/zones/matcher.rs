@@ -143,6 +143,7 @@ mod tests {
             route_target: "192.168.1.1".to_string(),
             domains: vec![],
             patterns: vec!["intra".to_string()],
+            static_routes: vec![],
         };
 
         let matcher = ZoneMatcher::new(vec![zone]).unwrap();
@@ -166,6 +167,7 @@ mod tests {
                 route_target: "10.0.0.1".to_string(),
                 domains: vec!["api.example.com".to_string()],
                 patterns: vec![],
+                static_routes: vec![],
             },
             ZoneConfig {
                 name: "general".to_string(),
@@ -174,6 +176,7 @@ mod tests {
                 route_target: "10.0.0.2".to_string(),
                 domains: vec!["example.com".to_string()],
                 patterns: vec![],
+                static_routes: vec![],
             },
         ];
 

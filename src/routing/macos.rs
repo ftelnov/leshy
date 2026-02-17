@@ -14,15 +14,26 @@ impl MacosRouteAdder {
 
 #[async_trait]
 impl RouteAdder for MacosRouteAdder {
-    async fn add_via_route(&self, ip: IpAddr, gateway: &str) -> Result<()> {
-        tracing::info!(ip = %ip, gateway = %gateway, "Adding route via gateway");
+    async fn add_via_route(&self, ip: IpAddr, prefix_len: u8, gateway: &str) -> Result<()> {
+        tracing::info!(ip = %ip, prefix_len = prefix_len, gateway = %gateway, "Adding route via gateway");
+
+        let max_prefix = if ip.is_ipv6() { 128 } else { 32 };
+        let is_host = prefix_len == max_prefix;
 
         let mut args = vec!["-n", "add"];
         if ip.is_ipv6() {
             args.push("-inet6");
         }
-        let ip_str = ip.to_string();
-        args.extend(["-host", &ip_str, gateway]);
+        let dest = if is_host {
+            ip.to_string()
+        } else {
+            format!("{ip}/{prefix_len}")
+        };
+        if is_host {
+            args.extend(["-host", &dest, gateway]);
+        } else {
+            args.extend(["-net", &dest, gateway]);
+        }
 
         let output = Command::new("/sbin/route")
             .args(&args)
@@ -45,15 +56,26 @@ impl RouteAdder for MacosRouteAdder {
         }
     }
 
-    async fn add_dev_route(&self, ip: IpAddr, device: &str) -> Result<()> {
-        tracing::info!(ip = %ip, device = device, "Adding route via device");
+    async fn add_dev_route(&self, ip: IpAddr, prefix_len: u8, device: &str) -> Result<()> {
+        tracing::info!(ip = %ip, prefix_len = prefix_len, device = device, "Adding route via device");
+
+        let max_prefix = if ip.is_ipv6() { 128 } else { 32 };
+        let is_host = prefix_len == max_prefix;
 
         let mut args = vec!["-n", "add"];
         if ip.is_ipv6() {
             args.push("-inet6");
         }
-        let ip_str = ip.to_string();
-        args.extend(["-host", &ip_str, "-interface", device]);
+        let dest = if is_host {
+            ip.to_string()
+        } else {
+            format!("{ip}/{prefix_len}")
+        };
+        if is_host {
+            args.extend(["-host", &dest, "-interface", device]);
+        } else {
+            args.extend(["-net", &dest, "-interface", device]);
+        }
 
         let output = Command::new("/sbin/route")
             .args(&args)
