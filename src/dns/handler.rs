@@ -1,4 +1,4 @@
-use crate::config::Config;
+use crate::config::{Config, DnsProtocol};
 use crate::routing::RouteManager;
 use crate::zones::ZoneMatcher;
 use hickory_proto::op::{Message, MessageType, OpCode, ResponseCode};
@@ -7,6 +7,7 @@ use hickory_server::authority::MessageResponseBuilder;
 use hickory_server::server::{Request, RequestHandler, ResponseHandler, ResponseInfo};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::RwLock;
 
 pub struct DnsHandler {
@@ -84,6 +85,88 @@ impl DnsHandler {
         // Parse response
         Message::from_vec(&buf[..len]).map_err(|e| {
             tracing::error!(error = %e, "Failed to parse response");
+            ResponseCode::ServFail
+        })
+    }
+
+    async fn forward_query_tcp(
+        &self,
+        request: &Request,
+        upstream: SocketAddr,
+    ) -> Result<Message, ResponseCode> {
+        let mut stream = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            tokio::net::TcpStream::connect(upstream),
+        )
+        .await
+        .map_err(|_| {
+            tracing::warn!(upstream = %upstream, "TCP connect timeout");
+            ResponseCode::ServFail
+        })?
+        .map_err(|e| {
+            tracing::error!(upstream = %upstream, error = %e, "Failed to connect TCP to upstream");
+            ResponseCode::ServFail
+        })?;
+
+        // Build query message
+        let mut query_msg = Message::new();
+        query_msg.add_query(hickory_proto::op::Query::query(
+            request.query().name().clone().into(),
+            request.query().query_type(),
+        ));
+        query_msg.set_id(request.id());
+        query_msg.set_message_type(MessageType::Query);
+        query_msg.set_op_code(request.op_code());
+        query_msg.set_recursion_desired(request.recursion_desired());
+
+        let request_bytes = query_msg.to_vec().map_err(|e| {
+            tracing::error!(error = %e, "Failed to serialize query");
+            ResponseCode::ServFail
+        })?;
+
+        // DNS over TCP: 2-byte big-endian length prefix + message
+        let len_prefix = (request_bytes.len() as u16).to_be_bytes();
+        stream.write_all(&len_prefix).await.map_err(|e| {
+            tracing::error!(upstream = %upstream, error = %e, "Failed to send TCP length prefix");
+            ResponseCode::ServFail
+        })?;
+        stream.write_all(&request_bytes).await.map_err(|e| {
+            tracing::error!(upstream = %upstream, error = %e, "Failed to send TCP request");
+            ResponseCode::ServFail
+        })?;
+
+        // Read response: 2-byte length prefix then message
+        let resp_len = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            stream.read_u16(),
+        )
+        .await
+        .map_err(|_| {
+            tracing::warn!(upstream = %upstream, "TCP response timeout");
+            ResponseCode::ServFail
+        })?
+        .map_err(|e| {
+            tracing::error!(upstream = %upstream, error = %e, "Failed to read TCP response length");
+            ResponseCode::ServFail
+        })? as usize;
+
+        let mut buf = vec![0u8; resp_len];
+        tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            stream.read_exact(&mut buf),
+        )
+        .await
+        .map_err(|_| {
+            tracing::warn!(upstream = %upstream, "TCP response body timeout");
+            ResponseCode::ServFail
+        })?
+        .map_err(|e| {
+            tracing::error!(upstream = %upstream, error = %e, "Failed to read TCP response body");
+            ResponseCode::ServFail
+        })?;
+
+        Message::from_vec(&buf).map_err(|e| {
+            tracing::error!(error = %e, "Failed to parse TCP response");
             ResponseCode::ServFail
         })
     }
@@ -209,16 +292,17 @@ impl RequestHandler for DnsHandler {
 
         // Find matching zone
         let zone = self.matcher.find_zone(&qname);
-        let upstream = match &zone {
+        let (upstream, protocol) = match &zone {
             Some(z) if !z.dns_servers.is_empty() => {
                 // Use zone's DNS servers (pick first for now, TODO: load balance)
                 tracing::debug!(
                     qname = qname,
                     zone = z.name,
                     upstream = ?z.dns_servers[0],
+                    protocol = ?z.dns_protocol,
                     "Routing to zone DNS"
                 );
-                z.dns_servers[0]
+                (z.dns_servers[0], z.dns_protocol)
             }
             _ => {
                 // Use default upstream (pick first for now, TODO: load balance)
@@ -227,12 +311,16 @@ impl RequestHandler for DnsHandler {
                     upstream = ?self.config.server.default_upstream[0],
                     "Routing to default DNS"
                 );
-                self.config.server.default_upstream[0]
+                (self.config.server.default_upstream[0], DnsProtocol::Udp)
             }
         };
 
-        // Forward query
-        match self.forward_query(request, upstream).await {
+        // Forward query using zone's protocol
+        let result = match protocol {
+            DnsProtocol::Udp => self.forward_query(request, upstream).await,
+            DnsProtocol::Tcp => self.forward_query_tcp(request, upstream).await,
+        };
+        match result {
             Ok(response) => {
                 tracing::debug!(
                     qname = qname,

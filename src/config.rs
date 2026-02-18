@@ -67,6 +67,19 @@ pub struct ZoneConfig {
     /// Static IP/CIDR routes to add on startup (e.g. "149.154.160.0/20", "1.2.3.4")
     #[serde(default)]
     pub static_routes: Vec<String>,
+
+    /// Protocol for upstream DNS queries: "udp" (default) or "tcp".
+    /// Use "tcp" when upstream is reachable only through a SOCKS5/TCP proxy (e.g. tun2socks).
+    #[serde(default)]
+    pub dns_protocol: DnsProtocol,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum DnsProtocol {
+    #[default]
+    Udp,
+    Tcp,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
