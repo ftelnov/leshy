@@ -290,38 +290,57 @@ impl RequestHandler for DnsHandler {
 
         tracing::info!(qname = qname, qtype = ?qtype, "Received query");
 
-        // Find matching zone
+        // Find matching zone and determine upstream servers + protocol
         let zone = self.matcher.find_zone(&qname);
-        let (upstream, protocol) = match &zone {
+        let (upstreams, protocol) = match &zone {
             Some(z) if !z.dns_servers.is_empty() => {
-                // Use zone's DNS servers (pick first for now, TODO: load balance)
                 tracing::debug!(
                     qname = qname,
                     zone = z.name,
-                    upstream = ?z.dns_servers[0],
+                    upstreams = ?z.dns_servers,
                     protocol = ?z.dns_protocol,
                     "Routing to zone DNS"
                 );
-                (z.dns_servers[0], z.dns_protocol)
+                (z.dns_servers.as_slice(), z.dns_protocol)
             }
             _ => {
-                // Use default upstream (pick first for now, TODO: load balance)
                 tracing::debug!(
                     qname = qname,
-                    upstream = ?self.config.server.default_upstream[0],
+                    upstreams = ?self.config.server.default_upstream,
                     "Routing to default DNS"
                 );
-                (self.config.server.default_upstream[0], DnsProtocol::Udp)
+                (self.config.server.default_upstream.as_slice(), DnsProtocol::Udp)
             }
         };
 
-        // Forward query using zone's protocol
-        let result = match protocol {
-            DnsProtocol::Udp => self.forward_query(request, upstream).await,
-            DnsProtocol::Tcp => self.forward_query_tcp(request, upstream).await,
-        };
+        // Sequential failover: try servers in order, fail only when all exhausted
+        let mut last_err = ResponseCode::ServFail;
+        let mut result = None;
+        for (i, &upstream) in upstreams.iter().enumerate() {
+            let res = match protocol {
+                DnsProtocol::Udp => self.forward_query(request, upstream).await,
+                DnsProtocol::Tcp => self.forward_query_tcp(request, upstream).await,
+            };
+            match res {
+                Ok(response) => {
+                    result = Some(response);
+                    break;
+                }
+                Err(rcode) => {
+                    tracing::warn!(
+                        qname = qname,
+                        upstream = %upstream,
+                        rcode = ?rcode,
+                        remaining = upstreams.len() - i - 1,
+                        "Upstream failed, trying next"
+                    );
+                    last_err = rcode;
+                }
+            }
+        }
+
         match result {
-            Ok(response) => {
+            Some(response) => {
                 tracing::debug!(
                     qname = qname,
                     answers = response.answers().len(),
@@ -343,10 +362,10 @@ impl RequestHandler for DnsHandler {
 
                 response_handle.send_response(response_msg).await.unwrap()
             }
-            Err(rcode) => {
-                tracing::error!(qname = qname, rcode = ?rcode, "Query failed");
+            None => {
+                tracing::error!(qname = qname, rcode = ?last_err, "All upstreams failed");
                 let builder = MessageResponseBuilder::from_message_request(request);
-                let response = builder.error_msg(request.header(), rcode);
+                let response = builder.error_msg(request.header(), last_err);
                 response_handle.send_response(response).await.unwrap()
             }
         }
