@@ -3,8 +3,10 @@ mod dns;
 mod error;
 mod reload;
 mod routing;
+mod service;
 mod zones;
 
+use clap::{Parser, Subcommand};
 use config::Config;
 use dns::{DnsHandler, DnsServer};
 use reload::{get_new_zones, get_zones_to_cleanup, ConfigWatcher};
@@ -14,8 +16,66 @@ use tokio::sync::RwLock;
 use tracing_subscriber::EnvFilter;
 use zones::ZoneMatcher;
 
+#[derive(Parser)]
+#[command(name = "leshy", about = "DNS-driven split-tunnel router", version)]
+struct Cli {
+    /// Path to configuration file
+    #[arg(global = true)]
+    config: Option<PathBuf>,
+
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Manage system service installation
+    Service {
+        #[command(subcommand)]
+        action: ServiceAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum ServiceAction {
+    /// Install as a system service (systemd on Linux, launchd on macOS)
+    Install {
+        /// Path to configuration file for the service
+        #[arg(long, default_value = service::default_config())]
+        config: PathBuf,
+
+        /// Service name (allows running multiple instances)
+        #[arg(long, default_value = service::default_name())]
+        name: String,
+    },
+    /// Remove the system service
+    Uninstall {
+        /// Service name to uninstall
+        #[arg(long, default_value = service::default_name())]
+        name: String,
+    },
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+
+    match cli.command {
+        Some(Command::Service { action }) => match action {
+            ServiceAction::Install { config, name } => {
+                service::install(Some(&name), Some(&config))?;
+            }
+            ServiceAction::Uninstall { name } => {
+                service::uninstall(Some(&name))?;
+            }
+        },
+        None => run_server(cli.config).await?,
+    }
+
+    Ok(())
+}
+
+async fn run_server(config_arg: Option<PathBuf>) -> anyhow::Result<()> {
     // Initialize logging
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -23,10 +83,8 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    // Parse command line arguments
-    let args: Vec<String> = std::env::args().collect();
-    let config_path = if args.len() > 1 {
-        PathBuf::from(&args[1])
+    let config_path = if let Some(path) = config_arg {
+        path
     } else {
         // Try common locations
         let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());

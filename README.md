@@ -6,34 +6,31 @@ DNS-driven split-tunnel router. Resolves domains, installs kernel routes -- only
 flowchart LR
     App["App / Docker"] -- DNS query --> Leshy
     Leshy -- match zone --> ZoneDNS["Corporate DNS"]
-    Leshy -- no match --> PublicDNS["Public DNS\n8.8.8.8"]
+    Leshy -- no match --> PublicDNS["Public DNS<br/>8.8.8.8"]
     ZoneDNS -- "A 10.0.1.1" --> Leshy
     PublicDNS -- "A 93.184.216.34" --> Leshy
-    Leshy -- "route add\n10.0.1.1 via tun0" --> Kernel["Kernel\nRouting Table"]
+    Leshy -- "route add<br/>10.0.1.1 via tun0" --> Kernel["Kernel<br/>Routing Table"]
     Leshy -- DNS response --> App
 ```
 
-## Quick Start
+## Quickstart
 
 ```bash
-# Build
-cargo build --release
-sudo cp target/release/leshy /usr/local/bin/
+# Install
+cargo install leshy
 
-# Run (needs CAP_NET_ADMIN for routes, CAP_NET_BIND_SERVICE for port 53)
-sudo leshy /etc/leshy/config.toml
+# Write your config
+sudo mkdir -p /etc/leshy
+sudo vim /etc/leshy/config.toml   # see Configuration below
 
-# Or grant capabilities once and run without sudo
-sudo setcap cap_net_admin,cap_net_bind_service+eip /usr/local/bin/leshy
-leshy /etc/leshy/config.toml
+# Install and start as a system service (systemd / launchd)
+sudo leshy service install
+
+# Point your DNS at Leshy
+echo "nameserver 127.0.0.53" | sudo tee /etc/resolv.conf
 ```
 
-Point your system DNS at Leshy:
-
-```
-# /etc/resolv.conf
-nameserver 127.0.0.53
-```
+That's it. Leshy is running, will start on boot, and routes VPN traffic automatically.
 
 ## Configuration
 
@@ -87,22 +84,30 @@ Traditional split-tunnel tools like `vpn-slice` hardcode IPs in `/etc/hosts`, wh
 - **VPN reconnect** -- device file disappears/reappears as VPN disconnects/connects
 - **Linux + macOS** -- rtnetlink on Linux, `/sbin/route` on macOS
 
-## systemd
+## Running as a Service
 
-```ini
-[Unit]
-Description=Leshy split-tunnel DNS server
-After=network.target
+```bash
+# Install with defaults (config: /etc/leshy/config.toml, service name: leshy)
+sudo leshy service install
 
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/leshy /etc/leshy/config.toml
-Restart=on-failure
-CapabilityBoundingSet=CAP_NET_BIND_SERVICE CAP_NET_ADMIN
-AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_NET_ADMIN
+# Custom config path
+sudo leshy service install --config /etc/leshy/corp.toml
 
-[Install]
-WantedBy=multi-user.target
+# Multiple instances with different names
+sudo leshy service install --name leshy-corp --config /etc/leshy/corp.toml
+sudo leshy service install --name leshy-eu   --config /etc/leshy/eu.toml
+
+# Remove a service
+sudo leshy service uninstall
+sudo leshy service uninstall --name leshy-corp
+```
+
+On Linux this creates a systemd unit with `CAP_NET_ADMIN` + `CAP_NET_BIND_SERVICE`. On macOS it creates a launchd plist with `KeepAlive` + `RunAtLoad`.
+
+You can also run leshy directly:
+
+```bash
+sudo leshy /etc/leshy/config.toml
 ```
 
 ## VPN Integration
@@ -125,9 +130,9 @@ Leshy reads this file on each DNS query. When the file disappears (VPN disconnec
 flowchart TB
     subgraph Leshy
         Handler["DNS Handler"]
-        Matcher["Zone Matcher\ndomain + pattern rules"]
+        Matcher["Zone Matcher<br/>domain + pattern rules"]
         Cache["DNS Cache"]
-        Agg["Route Aggregator\n/32 → /N compression"]
+        Agg["Route Aggregator<br/>/32 → /N compression"]
         RM["Route Manager"]
     end
 

@@ -1,7 +1,15 @@
 [package]
 name = "leshy"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
+description = "DNS-driven split-tunnel router. Resolves domains, installs kernel routes — only the traffic that needs a VPN goes through a VPN."
+license = "MIT"
+repository = "https://github.com/ftelnov/leshy"
+homepage = "https://github.com/ftelnov/leshy"
+readme = "README.md"
+keywords = ["dns", "vpn", "routing", "split-tunnel", "networking"]
+categories = ["command-line-utilities", "network-programming"]
+exclude = ["tests/docker/", ".github/"]
 
 [dependencies]
 # DNS server framework
@@ -22,6 +30,9 @@ futures = "0.3"
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
 
 # Error handling
 anyhow = "1"
