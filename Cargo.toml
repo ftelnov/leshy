@@ -9,7 +9,7 @@ homepage = "https://github.com/ftelnov/leshy"
 readme = "README.md"
 keywords = ["dns", "vpn", "routing", "split-tunnel", "networking"]
 categories = ["command-line-utilities", "network-programming"]
-exclude = ["tests/docker/", ".github/"]
+exclude = ["tests/", ".github/", "CLAUDE.md", "Makefile", "watch.sh", ".dockerignore", "flake.nix", "flake.lock", "examples/"]
 
 [dependencies]
 # DNS server framework
