@@ -78,3 +78,19 @@ route_type = "via"
 route_target = "192.168.1.254"
 domains = ["office.local", "printer.local"]
 patterns = []
+
+# Example Zone 4: Exclusive VPN catch-all
+# Routes ALL traffic through VPN except excluded domains/patterns.
+# Zone mode:
+#   "inclusive" (default) — only match listed domains/patterns
+#   "exclusive" — match everything EXCEPT listed domains/patterns
+# Patterns support glob wildcards: *.ru, corp*, *.internal.*
+[[zones]]
+name = "vpn-catchall"
+mode = "exclusive"
+dns_servers = []
+route_type = "via"
+route_target = "10.8.0.1"
+# These domains/patterns are EXCLUDED from the VPN (accessed directly):
+domains = ["local.network"]
+patterns = ["*.ru", "*.local"]

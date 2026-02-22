@@ -148,6 +148,7 @@ mod tests {
     fn test_zone(name: &str, route_type: RouteType, route_target: &str) -> ZoneConfig {
         ZoneConfig {
             name: name.to_string(),
+            mode: Default::default(),
             dns_servers: vec![],
             route_type,
             route_target: route_target.to_string(),

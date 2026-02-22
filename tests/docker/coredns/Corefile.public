@@ -13,6 +13,8 @@
         140.82.121.4   www.github.com
         104.16.132.229 cloudflare.com
         185.199.108.153 docker.io
+        77.88.55.242   yandex.ru
+        93.184.216.100 example.de
         fallthrough
     }
     log
