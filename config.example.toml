@@ -43,7 +43,7 @@ name = "corporate"
 route_type = "dev"                               # Route via network device
 route_target = "/run/vpn/corporate.dev"          # File containing device name (e.g., "tun0")
 domains = ["internal.company.com", "jira.company.com"]
-patterns = ["corp"]  # Matches any domain containing "corp"
+patterns = ["corp"]  # Regex: matches any domain containing "corp"
 
 # Per-zone cache TTL overrides (optional, falls back to [server] defaults)
 cache_min_ttl = 30
@@ -84,7 +84,7 @@ patterns = []
 # Zone mode:
 #   "inclusive" (default) — only match listed domains/patterns
 #   "exclusive" — match everything EXCEPT listed domains/patterns
-# Patterns support glob wildcards: *.ru, corp*, *.internal.*
+# Patterns are raw regex: \.ru$, ^corp, \.internal\.
 [[zones]]
 name = "vpn-catchall"
 mode = "exclusive"
@@ -93,4 +93,4 @@ route_type = "via"
 route_target = "10.8.0.1"
 # These domains/patterns are EXCLUDED from the VPN (accessed directly):
 domains = ["local.network"]
-patterns = ["*.ru", "*.local"]
+patterns = ['\.ru$', '\.local$']

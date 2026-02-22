@@ -47,7 +47,7 @@ dns_servers = []
 route_type = "via"
 route_target = "192.168.1.1"
 domains = ["google.com"]
-patterns = ["*.ru"]
+patterns = ['\.ru$']
     "#;
 
     let temp_dir = tempfile::tempdir().unwrap();
@@ -116,5 +116,40 @@ patterns = []
     assert!(
         result.is_err(),
         "Inclusive zone with no matchers should fail validation"
+    );
+}
+
+#[test]
+fn test_invalid_regex_in_config_fails() {
+    use leshy::config::Config;
+
+    let config_str = r#"
+[server]
+listen_address = "127.0.0.1:15363"
+default_upstream = ["8.8.8.8:53"]
+
+[[zones]]
+name = "bad-regex"
+mode = "exclusive"
+dns_servers = []
+route_type = "via"
+route_target = "192.168.1.1"
+domains = []
+patterns = ["[bad"]
+    "#;
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let path = temp_dir.path().join("bad-regex.toml");
+    std::fs::write(&path, config_str).unwrap();
+
+    let result = Config::from_file(&path);
+    assert!(
+        result.is_err(),
+        "Invalid regex pattern should fail validation"
+    );
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("bad-regex"),
+        "Error should mention zone name: {err}"
     );
 }

@@ -1,39 +1,18 @@
 use crate::config::{ZoneConfig, ZoneMode};
-use regex::Regex;
+use regex::RegexSet;
+use std::collections::HashSet;
 use std::sync::Arc;
 
+#[derive(Debug)]
 pub struct ZoneMatcher {
     zones: Vec<ZoneEntry>,
 }
 
+#[derive(Debug)]
 struct ZoneEntry {
     config: Arc<ZoneConfig>,
-    domain_matchers: Vec<DomainMatcher>,
-    pattern_regexes: Vec<Regex>,
-}
-
-struct DomainMatcher {
-    domain: String,
-    // Pattern for exact match: ^domain$
-    exact_regex: Regex,
-    // Pattern for subdomain match: ^.*\.domain$
-    subdomain_regex: Regex,
-}
-
-/// Compile a pattern string into a regex.
-/// If the pattern contains `*`, it is treated as a glob wildcard (`*.ru` → `^.*\.ru$`).
-/// Otherwise, it uses legacy substring matching (`intra` → `.*intra.*`).
-fn compile_pattern(pattern: &str) -> anyhow::Result<Regex> {
-    let regex_str = if pattern.contains('*') {
-        // Glob-style: split on *, escape each segment, join with .*
-        let parts: Vec<String> = pattern.split('*').map(regex::escape).collect();
-        format!("^{}$", parts.join(".*"))
-    } else {
-        // Legacy substring match (backward compatible)
-        let escaped = regex::escape(pattern);
-        format!(".*{escaped}.*")
-    };
-    Ok(Regex::new(&regex_str)?)
+    domain_set: HashSet<String>,
+    pattern_set: RegexSet,
 }
 
 impl ZoneMatcher {
@@ -41,20 +20,17 @@ impl ZoneMatcher {
         let mut zone_entries = Vec::new();
 
         for zone in zones {
-            let mut domain_matchers = Vec::new();
-            for domain in &zone.domains {
-                domain_matchers.push(DomainMatcher::new(domain)?);
-            }
+            let domain_set: HashSet<String> =
+                zone.domains.iter().map(|d| d.to_lowercase()).collect();
 
-            let mut pattern_regexes = Vec::new();
-            for pattern in &zone.patterns {
-                pattern_regexes.push(compile_pattern(pattern)?);
-            }
+            let pattern_set = RegexSet::new(&zone.patterns).map_err(|e| {
+                anyhow::anyhow!("Zone '{}': invalid regex pattern: {}", zone.name, e)
+            })?;
 
             zone_entries.push(ZoneEntry {
                 config: Arc::new(zone),
-                domain_matchers,
-                pattern_regexes,
+                domain_set,
+                pattern_set,
             });
         }
 
@@ -102,56 +78,33 @@ impl ZoneMatcher {
 
     /// Check whether a domain matches any domain or pattern in the zone
     fn matches_zone(zone: &ZoneEntry, qname: &str) -> bool {
-        for matcher in &zone.domain_matchers {
-            if matcher.matches(qname) {
+        // Check domain set: walk suffix labels
+        let lower = qname.to_lowercase();
+        let mut remaining = lower.as_str();
+        loop {
+            if zone.domain_set.contains(remaining) {
                 tracing::debug!(
                     zone = zone.config.name,
-                    domain = matcher.domain,
+                    domain = remaining,
                     qname = qname,
                     "Domain match"
                 );
                 return true;
             }
-        }
-
-        for pattern_regex in &zone.pattern_regexes {
-            if pattern_regex.is_match(qname) {
-                tracing::debug!(
-                    zone = zone.config.name,
-                    pattern = pattern_regex.as_str(),
-                    qname = qname,
-                    "Pattern match"
-                );
-                return true;
+            // Strip the first label
+            match remaining.find('.') {
+                Some(pos) => remaining = &remaining[pos + 1..],
+                None => break,
             }
         }
 
+        // Check pattern set (single RegexSet call)
+        if zone.pattern_set.is_match(qname) {
+            tracing::debug!(zone = zone.config.name, qname = qname, "Pattern match");
+            return true;
+        }
+
         false
-    }
-}
-
-impl DomainMatcher {
-    fn new(domain: &str) -> anyhow::Result<Self> {
-        // Escape special regex characters
-        let escaped = regex::escape(domain);
-
-        // Exact match: ^domain$
-        let exact_pattern = format!("^{escaped}$");
-        let exact_regex = Regex::new(&exact_pattern)?;
-
-        // Subdomain match: ^.*\.domain$
-        let subdomain_pattern = format!(r"^.*\.{escaped}$");
-        let subdomain_regex = Regex::new(&subdomain_pattern)?;
-
-        Ok(Self {
-            domain: domain.to_string(),
-            exact_regex,
-            subdomain_regex,
-        })
-    }
-
-    fn matches(&self, qname: &str) -> bool {
-        self.exact_regex.is_match(qname) || self.subdomain_regex.is_match(qname)
     }
 }
 
@@ -185,19 +138,20 @@ mod tests {
 
     #[test]
     fn test_domain_matcher() {
-        let matcher = DomainMatcher::new("example.com").unwrap();
+        let zone = test_zone("test", vec!["example.com"], vec![]);
+        let matcher = ZoneMatcher::new(vec![zone]).unwrap();
 
         // Exact match
-        assert!(matcher.matches("example.com"));
+        assert!(matcher.find_zone("example.com").is_some());
 
         // Subdomain match
-        assert!(matcher.matches("www.example.com"));
-        assert!(matcher.matches("api.prod.example.com"));
+        assert!(matcher.find_zone("www.example.com").is_some());
+        assert!(matcher.find_zone("api.prod.example.com").is_some());
 
         // No match
-        assert!(!matcher.matches("example.org"));
-        assert!(!matcher.matches("notexample.com"));
-        assert!(!matcher.matches("example.com.fake"));
+        assert!(matcher.find_zone("example.org").is_none());
+        assert!(matcher.find_zone("notexample.com").is_none());
+        assert!(matcher.find_zone("example.com.fake").is_none());
     }
 
     #[test]
@@ -243,8 +197,8 @@ mod tests {
     }
 
     #[test]
-    fn test_wildcard_pattern_star_dot_ru() {
-        let zone = test_zone("ru-zone", vec![], vec!["*.ru"]);
+    fn test_regex_pattern_tld() {
+        let zone = test_zone("ru-zone", vec![], vec![r"\.ru$"]);
         let matcher = ZoneMatcher::new(vec![zone]).unwrap();
 
         assert!(matcher.find_zone("example.ru").is_some());
@@ -256,8 +210,8 @@ mod tests {
     }
 
     #[test]
-    fn test_wildcard_pattern_prefix() {
-        let zone = test_zone("corp-zone", vec![], vec!["corp*"]);
+    fn test_regex_pattern_prefix() {
+        let zone = test_zone("corp-zone", vec![], vec!["^corp"]);
         let matcher = ZoneMatcher::new(vec![zone]).unwrap();
 
         assert!(matcher.find_zone("corp.internal.com").is_some());
@@ -295,7 +249,7 @@ mod tests {
     fn test_inclusive_then_exclusive_precedence() {
         let zones = vec![
             test_zone("corporate", vec!["internal.company.com"], vec![]),
-            exclusive_zone("vpn-all", vec!["google.com"], vec!["*.ru"]),
+            exclusive_zone("vpn-all", vec!["google.com"], vec![r"\.ru$"]),
         ];
         let matcher = ZoneMatcher::new(zones).unwrap();
 
@@ -311,5 +265,14 @@ mod tests {
         // Excluded from exclusive zone → no match
         assert!(matcher.find_zone("google.com").is_none());
         assert!(matcher.find_zone("yandex.ru").is_none());
+    }
+
+    #[test]
+    fn test_invalid_regex_pattern() {
+        let zone = test_zone("bad", vec![], vec!["[unclosed"]);
+        let result = ZoneMatcher::new(vec![zone]);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("bad"), "Error should mention zone name: {err}");
     }
 }

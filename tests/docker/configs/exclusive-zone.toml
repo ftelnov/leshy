@@ -20,4 +20,4 @@ dns_servers = []
 route_type = "via"
 route_target = "172.28.0.1"
 domains = ["google.com"]
-patterns = ["*.ru"]
+patterns = ['\.ru$']

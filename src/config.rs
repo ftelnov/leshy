@@ -309,6 +309,18 @@ impl Config {
                     zone.name
                 );
             }
+
+            // Validate pattern regexes
+            for pattern in &zone.patterns {
+                if let Err(e) = regex::Regex::new(pattern) {
+                    anyhow::bail!(
+                        "Zone '{}': invalid regex pattern '{}': {}",
+                        zone.name,
+                        pattern,
+                        e
+                    );
+                }
+            }
         }
 
         // Validate route_aggregation_prefix

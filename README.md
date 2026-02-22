@@ -45,7 +45,7 @@ dns_servers = ["10.0.0.2:53"]
 route_type = "dev"                       # route via VPN tunnel device
 route_target = "/run/vpn/corporate.dev"  # file containing device name (e.g. "tun0")
 domains = ["internal.company.com", "git.company.com"]
-patterns = ["corp"]                      # substring match
+patterns = ["corp"]                      # regex
 
 [[zones]]
 name = "eu"
@@ -66,7 +66,7 @@ See [config.example.toml](config.example.toml) for all options.
 ### Domain Matching
 
 - **`domains`** -- exact match + all subdomains (`company.com` matches `git.company.com`)
-- **`patterns`** -- substring match anywhere in the queried name
+- **`patterns`** -- regex match against the queried name
 
 ## Why Leshy
 
