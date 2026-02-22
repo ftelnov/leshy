@@ -30,9 +30,9 @@ make integration-test
 This spins up:
 - `public-dns` (CoreDNS at 172.28.0.10) — serves known public A records
 - `corporate-dns` (CoreDNS at 172.28.0.20) — serves internal corporate records
-- `test-runner` (Debian + leshy binary + pytest) — runs 11 end-to-end tests
+- `test-runner` (Debian + leshy binary + pytest) — runs 12 end-to-end tests
 
-Tests cover: DNS forwarding, zone-specific DNS, route via gateway, route via device, fallback on route failure, pattern matching, VPN reconnect lifecycle, static routes, DNS response caching, upstream failover, all-upstreams-fail.
+Tests cover: DNS forwarding, zone-specific DNS, route via gateway, route via device, fallback on route failure, pattern matching, VPN reconnect lifecycle, static routes, DNS response caching, upstream failover, all-upstreams-fail, route aggregation.
 
 ### 3. Fix any issues
 
@@ -58,6 +58,7 @@ src/
     mod.rs           — DNS server setup
   routing/
     mod.rs           — Route manager (add/remove routes per zone)
+    aggregator.rs    — CIDR route aggregation (compress /32s into wider prefixes)
     linux.rs         — Linux rtnetlink route operations
     macos.rs         — macOS /sbin/route operations
   reload.rs          — Hot-reload config watcher
@@ -75,7 +76,7 @@ tests/
     coredns/               — CoreDNS Corefiles for public/corporate DNS
     configs/               — Leshy TOML configs per test scenario
     conftest.py            — Pytest fixtures (leshy, dns_query, etc.)
-    test_integration.py    — 11 integration tests
+    test_integration.py    — 12 integration tests
 ```
 
 ## Key Commands
@@ -130,6 +131,30 @@ git reset --soft <original-commit>
 git commit --amend --no-edit
 git push --force
 ```
+
+## Version Bump Workflow
+
+Version and git tag must always be in sync. Do both in a single commit:
+
+```bash
+# 1. Update version in Cargo.toml
+#    e.g. version = "0.2.0" → version = "0.3.0"
+
+# 2. Commit the version bump
+git add Cargo.toml Cargo.lock
+git commit -m "bump version to v0.3.0"
+
+# 3. Tag the commit with the same version
+git tag v0.3.0
+
+# 4. Push commit and tag together
+git push && git push --tags
+```
+
+Rules:
+- The `version` in `Cargo.toml` and the git tag must match (tag is prefixed with `v`).
+- Always a single commit for the version bump.
+- Push both the commit and the tag in the same step.
 
 ## Config Format
 
