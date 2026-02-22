@@ -1,6 +1,6 @@
 [package]
 name = "leshy"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 description = "DNS-driven split-tunnel router. Resolves domains, installs kernel routes — only the traffic that needs a VPN goes through a VPN."
 license = "MIT"
@@ -9,7 +9,17 @@ homepage = "https://github.com/ftelnov/leshy"
 readme = "README.md"
 keywords = ["dns", "vpn", "routing", "split-tunnel", "networking"]
 categories = ["command-line-utilities", "network-programming"]
-exclude = ["tests/", ".github/", "CLAUDE.md", "Makefile", "watch.sh", ".dockerignore", "flake.nix", "flake.lock", "examples/"]
+exclude = [
+  "tests/",
+  ".github/",
+  "CLAUDE.md",
+  "Makefile",
+  "watch.sh",
+  ".dockerignore",
+  "flake.nix",
+  "flake.lock",
+  "examples/",
+]
 
 [dependencies]
 # DNS server framework
