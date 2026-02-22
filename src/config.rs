@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
@@ -28,6 +28,22 @@ pub struct ServerConfig {
     /// Defaults to config.d/ next to the main config file.
     #[serde(default)]
     pub config_dir: Option<String>,
+
+    /// Maximum number of cache entries (0 = disabled)
+    #[serde(default = "default_cache_size")]
+    pub cache_size: usize,
+
+    /// Minimum TTL for cached responses (seconds)
+    #[serde(default = "default_cache_min_ttl")]
+    pub cache_min_ttl: u64,
+
+    /// Maximum TTL for cached responses (seconds)
+    #[serde(default = "default_cache_max_ttl")]
+    pub cache_max_ttl: u64,
+
+    /// TTL for NXDOMAIN / empty responses (seconds)
+    #[serde(default = "default_cache_negative_ttl")]
+    pub cache_negative_ttl: u64,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -41,13 +57,28 @@ fn default_route_failure_mode() -> RouteFailureMode {
     RouteFailureMode::Fallback
 }
 
+fn default_cache_size() -> usize {
+    1000
+}
+fn default_cache_min_ttl() -> u64 {
+    60
+}
+fn default_cache_max_ttl() -> u64 {
+    3600
+}
+fn default_cache_negative_ttl() -> u64 {
+    30
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ZoneConfig {
     pub name: String,
 
     /// DNS servers for this zone. Empty = use default upstream.
-    #[serde(default)]
-    pub dns_servers: Vec<SocketAddr>,
+    /// Supports both simple format: ["10.44.2.2:53"]
+    /// and rich format: [{ address = "10.44.2.2:53", cache_min_ttl = 10 }]
+    #[serde(default, deserialize_with = "deserialize_dns_servers")]
+    pub dns_servers: Vec<DnsServerConfig>,
 
     /// How to route resolved IPs
     pub route_type: RouteType,
@@ -72,6 +103,56 @@ pub struct ZoneConfig {
     /// Use "tcp" when upstream is reachable only through a SOCKS5/TCP proxy (e.g. tun2socks).
     #[serde(default)]
     pub dns_protocol: DnsProtocol,
+
+    /// Per-zone cache minimum TTL override (seconds)
+    #[serde(default)]
+    pub cache_min_ttl: Option<u64>,
+
+    /// Per-zone cache maximum TTL override (seconds)
+    #[serde(default)]
+    pub cache_max_ttl: Option<u64>,
+
+    /// Per-zone negative TTL override (seconds)
+    #[serde(default)]
+    pub cache_negative_ttl: Option<u64>,
+}
+
+/// Per-server DNS configuration with optional cache TTL overrides.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct DnsServerConfig {
+    pub address: SocketAddr,
+    #[serde(default)]
+    pub cache_min_ttl: Option<u64>,
+    #[serde(default)]
+    pub cache_max_ttl: Option<u64>,
+    #[serde(default)]
+    pub cache_negative_ttl: Option<u64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum DnsServerEntry {
+    Simple(SocketAddr),
+    Rich(DnsServerConfig),
+}
+
+fn deserialize_dns_servers<'de, D>(deserializer: D) -> Result<Vec<DnsServerConfig>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let entries: Vec<DnsServerEntry> = Vec::deserialize(deserializer)?;
+    Ok(entries
+        .into_iter()
+        .map(|entry| match entry {
+            DnsServerEntry::Simple(address) => DnsServerConfig {
+                address,
+                cache_min_ttl: None,
+                cache_max_ttl: None,
+                cache_negative_ttl: None,
+            },
+            DnsServerEntry::Rich(config) => config,
+        })
+        .collect())
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
@@ -196,7 +277,8 @@ impl Config {
 
         // Validate zones
         for zone in &self.zones {
-            if zone.domains.is_empty() && zone.patterns.is_empty() && zone.static_routes.is_empty() {
+            if zone.domains.is_empty() && zone.patterns.is_empty() && zone.static_routes.is_empty()
+            {
                 anyhow::bail!(
                     "Zone '{}' must have at least one domain, pattern, or static route",
                     zone.name

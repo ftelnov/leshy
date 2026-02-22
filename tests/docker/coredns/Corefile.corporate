@@ -1,0 +1,15 @@
+. {
+    bind 172.28.0.20
+    hosts {
+        10.0.1.1   internal.company.com
+        10.0.1.2   git.company.com
+        10.0.1.3   wiki.company.com
+        10.0.1.4   registry.company.com
+        10.0.1.5   jira.company.com
+        10.0.1.10  service.corp.internal
+        fallthrough
+    }
+    forward . 172.28.0.10
+    log
+    errors
+}

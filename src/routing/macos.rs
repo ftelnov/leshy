@@ -35,10 +35,7 @@ impl RouteAdder for MacosRouteAdder {
             args.extend(["-net", &dest, gateway]);
         }
 
-        let output = Command::new("/sbin/route")
-            .args(&args)
-            .output()
-            .await?;
+        let output = Command::new("/sbin/route").args(&args).output().await?;
 
         if output.status.success() {
             tracing::debug!(ip = %ip, gateway = %gateway, "Route added successfully");
@@ -77,10 +74,7 @@ impl RouteAdder for MacosRouteAdder {
             args.extend(["-net", &dest, "-interface", device]);
         }
 
-        let output = Command::new("/sbin/route")
-            .args(&args)
-            .output()
-            .await?;
+        let output = Command::new("/sbin/route").args(&args).output().await?;
 
         if output.status.success() {
             tracing::debug!(ip = %ip, device = device, "Route added successfully");

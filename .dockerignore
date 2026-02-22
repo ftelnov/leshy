@@ -1,0 +1,10 @@
+target/
+.git/
+.direnv/
+.github/
+logs.txt
+*.md
+.envrc
+flake.nix
+flake.lock
+shell.nix

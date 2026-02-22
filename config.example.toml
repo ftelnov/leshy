@@ -20,15 +20,38 @@ route_failure_mode = "fallback"
 # - Start tracking new zones
 auto_reload = true
 
+# DNS response cache settings (global defaults)
+# cache_size: max entries, 0 = disabled (default: 1000)
+# cache_min_ttl: minimum TTL in seconds (default: 60)
+# cache_max_ttl: maximum TTL in seconds (default: 3600)
+# cache_negative_ttl: TTL for NXDOMAIN / empty responses in seconds (default: 30)
+cache_size = 1000
+cache_min_ttl = 60
+cache_max_ttl = 3600
+cache_negative_ttl = 30
+
 # Example Zone 1: Corporate VPN with device-based routing
 # Routes traffic through a VPN tunnel device that may connect/disconnect
 [[zones]]
 name = "corporate"
-dns_servers = ["10.44.2.2:53", "10.44.2.4:53"]  # Corporate DNS servers
 route_type = "dev"                               # Route via network device
 route_target = "/run/vpn/corporate.dev"          # File containing device name (e.g., "tun0")
 domains = ["internal.company.com", "jira.company.com"]
 patterns = ["corp"]  # Matches any domain containing "corp"
+
+# Per-zone cache TTL overrides (optional, falls back to [server] defaults)
+cache_min_ttl = 30
+cache_max_ttl = 600
+
+# Rich dns_servers format — per-server cache TTL overrides:
+[[zones.dns_servers]]
+address = "10.44.2.2:53"
+cache_min_ttl = 10
+cache_max_ttl = 300
+
+[[zones.dns_servers]]
+address = "10.44.2.4:53"
+# inherits zone → global defaults
 
 # Example Zone 2: EU VPN with static gateway
 # Routes traffic through a fixed gateway (always-on VPN)
@@ -41,6 +64,7 @@ domains = ["chatgpt.com", "github.com"]
 patterns = ["openai", "anthropic"]
 
 # Example Zone 3: Office network
+# Simple dns_servers format still works:
 [[zones]]
 name = "office"
 dns_servers = ["192.168.1.1:53"]

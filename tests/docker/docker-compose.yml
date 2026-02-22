@@ -1,0 +1,43 @@
+services:
+  public-dns:
+    image: coredns/coredns:latest
+    container_name: leshy-public-dns
+    command: -conf /etc/coredns/Corefile
+    volumes:
+      - ./coredns/Corefile.public:/etc/coredns/Corefile:ro
+    networks:
+      testnet:
+        ipv4_address: 172.28.0.10
+
+  corporate-dns:
+    image: coredns/coredns:latest
+    container_name: leshy-corporate-dns
+    command: -conf /etc/coredns/Corefile
+    volumes:
+      - ./coredns/Corefile.corporate:/etc/coredns/Corefile:ro
+    networks:
+      testnet:
+        ipv4_address: 172.28.0.20
+
+  test-runner:
+    build:
+      context: ../..
+      dockerfile: tests/docker/Dockerfile.test
+    container_name: leshy-test-runner
+    cap_add:
+      - NET_ADMIN
+    depends_on:
+      - public-dns
+      - corporate-dns
+    networks:
+      testnet:
+        ipv4_address: 172.28.0.100
+    environment:
+      - RUST_LOG=info
+
+networks:
+  testnet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24

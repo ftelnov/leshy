@@ -163,6 +163,9 @@ async fn retry_static_routes(handler: Arc<RwLock<DnsHandler>>) {
             tracing::info!("All static routes applied successfully");
             break;
         }
-        tracing::debug!(pending = failures, "Some static routes still pending, will retry");
+        tracing::debug!(
+            pending = failures,
+            "Some static routes still pending, will retry"
+        );
     }
 }

@@ -44,7 +44,11 @@ impl RouteManager {
         };
 
         let result = match zone.route_type {
-            RouteType::Via => self.adder.add_via_route(ip, prefix_len, &zone.route_target).await,
+            RouteType::Via => {
+                self.adder
+                    .add_via_route(ip, prefix_len, &zone.route_target)
+                    .await
+            }
             RouteType::Dev => {
                 let device = self.read_device_file(&zone.route_target).await?;
                 self.adder.add_dev_route(ip, prefix_len, &device).await
@@ -53,10 +57,7 @@ impl RouteManager {
 
         if result.is_ok() {
             let mut routes = self.zone_routes.write().await;
-            routes
-                .entry(zone.name.clone())
-                .or_default()
-                .insert(ip);
+            routes.entry(zone.name.clone()).or_default().insert(ip);
         }
 
         result
@@ -69,7 +70,11 @@ impl RouteManager {
         tracing::info!(cidr = cidr, zone = zone.name, "Adding static route");
 
         let result = match zone.route_type {
-            RouteType::Via => self.adder.add_via_route(ip, prefix_len, &zone.route_target).await,
+            RouteType::Via => {
+                self.adder
+                    .add_via_route(ip, prefix_len, &zone.route_target)
+                    .await
+            }
             RouteType::Dev => {
                 let device = self.read_device_file(&zone.route_target).await?;
                 self.adder.add_dev_route(ip, prefix_len, &device).await
@@ -78,10 +83,7 @@ impl RouteManager {
 
         if result.is_ok() {
             let mut routes = self.zone_routes.write().await;
-            routes
-                .entry(zone.name.clone())
-                .or_default()
-                .insert(ip);
+            routes.entry(zone.name.clone()).or_default().insert(ip);
         }
 
         result
@@ -140,7 +142,9 @@ impl RouteManager {
 fn parse_cidr(cidr: &str) -> Result<(IpAddr, u8)> {
     if let Some((ip_str, prefix_str)) = cidr.split_once('/') {
         let ip: IpAddr = ip_str.parse().context("Failed to parse IP in CIDR")?;
-        let prefix_len: u8 = prefix_str.parse().context("Failed to parse prefix length")?;
+        let prefix_len: u8 = prefix_str
+            .parse()
+            .context("Failed to parse prefix length")?;
         let max = match ip {
             IpAddr::V4(_) => 32,
             IpAddr::V6(_) => 128,

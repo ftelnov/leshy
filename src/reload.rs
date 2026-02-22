@@ -145,38 +145,30 @@ mod tests {
     use super::*;
     use crate::config::{RouteType, ZoneConfig};
 
-    #[test]
-    fn test_get_zones_to_cleanup() {
-        let old_zones = vec![
-            ZoneConfig {
-                name: "zone1".to_string(),
-                dns_servers: vec![],
-                route_type: RouteType::Via,
-                route_target: "192.168.1.1".to_string(),
-                domains: vec![],
-                patterns: vec![],
-                static_routes: vec![],
-            },
-            ZoneConfig {
-                name: "zone2".to_string(),
-                dns_servers: vec![],
-                route_type: RouteType::Via,
-                route_target: "192.168.1.1".to_string(),
-                domains: vec![],
-                patterns: vec![],
-                static_routes: vec![],
-            },
-        ];
-
-        let new_zones = vec![ZoneConfig {
-            name: "zone2".to_string(),
+    fn test_zone(name: &str, route_type: RouteType, route_target: &str) -> ZoneConfig {
+        ZoneConfig {
+            name: name.to_string(),
             dns_servers: vec![],
-            route_type: RouteType::Via,
-            route_target: "192.168.1.1".to_string(),
+            route_type,
+            route_target: route_target.to_string(),
             domains: vec![],
             patterns: vec![],
             static_routes: vec![],
-        }];
+            dns_protocol: Default::default(),
+            cache_min_ttl: None,
+            cache_max_ttl: None,
+            cache_negative_ttl: None,
+        }
+    }
+
+    #[test]
+    fn test_get_zones_to_cleanup() {
+        let old_zones = vec![
+            test_zone("zone1", RouteType::Via, "192.168.1.1"),
+            test_zone("zone2", RouteType::Via, "192.168.1.1"),
+        ];
+
+        let new_zones = vec![test_zone("zone2", RouteType::Via, "192.168.1.1")];
 
         let to_cleanup = get_zones_to_cleanup(&old_zones, &new_zones);
         assert_eq!(to_cleanup.len(), 1);
@@ -185,35 +177,11 @@ mod tests {
 
     #[test]
     fn test_get_new_zones() {
-        let old_zones = vec![ZoneConfig {
-            name: "zone1".to_string(),
-            dns_servers: vec![],
-            route_type: RouteType::Via,
-            route_target: "192.168.1.1".to_string(),
-            domains: vec![],
-            patterns: vec![],
-            static_routes: vec![],
-        }];
+        let old_zones = vec![test_zone("zone1", RouteType::Via, "192.168.1.1")];
 
         let new_zones = vec![
-            ZoneConfig {
-                name: "zone1".to_string(),
-                dns_servers: vec![],
-                route_type: RouteType::Via,
-                route_target: "192.168.1.1".to_string(),
-                domains: vec![],
-                patterns: vec![],
-                static_routes: vec![],
-            },
-            ZoneConfig {
-                name: "zone2".to_string(),
-                dns_servers: vec![],
-                route_type: RouteType::Dev,
-                route_target: "/tmp/test.dev".to_string(),
-                domains: vec![],
-                patterns: vec![],
-                static_routes: vec![],
-            },
+            test_zone("zone1", RouteType::Via, "192.168.1.1"),
+            test_zone("zone2", RouteType::Dev, "/tmp/test.dev"),
         ];
 
         let new = get_new_zones(&old_zones, &new_zones);

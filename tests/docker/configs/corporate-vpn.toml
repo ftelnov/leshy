@@ -1,0 +1,28 @@
+[server]
+listen_address = "0.0.0.0:10053"
+default_upstream = ["172.28.0.10:53"]
+route_failure_mode = "fallback"
+
+# Corporate zone: device-based routing through dummy VPN interface
+[[zones]]
+name = "corporate"
+dns_servers = ["172.28.0.20:53"]
+route_type = "dev"
+route_target = "/tmp/vpn.dev"
+domains = [
+    "internal.company.com",
+    "git.company.com",
+    "wiki.company.com",
+    "registry.company.com",
+    "jira.company.com",
+]
+patterns = ["corp"]
+
+# Secondary zone: gateway-based routing
+[[zones]]
+name = "secondary"
+dns_servers = []
+route_type = "via"
+route_target = "172.28.0.1"
+domains = ["github.com"]
+patterns = []

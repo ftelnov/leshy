@@ -1,0 +1,7 @@
+[server]
+listen_address = "0.0.0.0:10053"
+default_upstream = ["172.28.0.10:53"]
+route_failure_mode = "fallback"
+cache_size = 1000
+cache_min_ttl = 60
+cache_max_ttl = 3600

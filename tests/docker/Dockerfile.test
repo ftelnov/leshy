@@ -1,0 +1,32 @@
+# Stage 1: Build leshy binary
+FROM rust:1-bookworm AS builder
+
+WORKDIR /build
+COPY Cargo.toml Cargo.lock ./
+COPY src/ src/
+
+RUN cargo build --release
+
+# Stage 2: Test runner
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    iproute2 \
+    python3 \
+    python3-pip \
+    python3-venv \
+    dnsutils \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+RUN pip install --no-cache-dir pytest dnspython
+
+COPY --from=builder /build/target/release/leshy /usr/local/bin/leshy
+
+COPY tests/docker/configs/ /etc/leshy/
+COPY tests/docker/conftest.py /tests/conftest.py
+COPY tests/docker/test_integration.py /tests/test_integration.py
+
+WORKDIR /tests
+CMD ["pytest", "-v", "--tb=short", "test_integration.py"]

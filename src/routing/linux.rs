@@ -73,8 +73,7 @@ impl RouteAdder for LinuxRouteAdder {
                 tracing::debug!(ip = %ip, gateway = %gateway, "Route added successfully");
                 Ok(())
             }
-            Err(rtnetlink::Error::NetlinkError(err))
-                if matches!(err.code, Some(code) if code.get() == -17) =>
+            Err(rtnetlink::Error::NetlinkError(err)) if matches!(err.code, Some(code) if code.get() == -17) =>
             {
                 tracing::debug!(ip = %ip, "Route already exists");
                 Ok(())
@@ -136,8 +135,7 @@ impl RouteAdder for LinuxRouteAdder {
                 tracing::debug!(ip = %ip, device = device, "Route added successfully");
                 Ok(())
             }
-            Err(rtnetlink::Error::NetlinkError(err))
-                if matches!(err.code, Some(code) if code.get() == -17) =>
+            Err(rtnetlink::Error::NetlinkError(err)) if matches!(err.code, Some(code) if code.get() == -17) =>
             {
                 tracing::debug!(ip = %ip, "Route already exists");
                 Ok(())

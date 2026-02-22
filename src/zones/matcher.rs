@@ -144,6 +144,10 @@ mod tests {
             domains: vec![],
             patterns: vec!["intra".to_string()],
             static_routes: vec![],
+            dns_protocol: Default::default(),
+            cache_min_ttl: None,
+            cache_max_ttl: None,
+            cache_negative_ttl: None,
         };
 
         let matcher = ZoneMatcher::new(vec![zone]).unwrap();
@@ -168,6 +172,10 @@ mod tests {
                 domains: vec!["api.example.com".to_string()],
                 patterns: vec![],
                 static_routes: vec![],
+                dns_protocol: Default::default(),
+                cache_min_ttl: None,
+                cache_max_ttl: None,
+                cache_negative_ttl: None,
             },
             ZoneConfig {
                 name: "general".to_string(),
@@ -177,6 +185,10 @@ mod tests {
                 domains: vec!["example.com".to_string()],
                 patterns: vec![],
                 static_routes: vec![],
+                dns_protocol: Default::default(),
+                cache_min_ttl: None,
+                cache_max_ttl: None,
+                cache_negative_ttl: None,
             },
         ];
 

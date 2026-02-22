@@ -4,12 +4,13 @@
 # Watches Rust source files and re-runs tests on changes
 #
 # Usage:
-#   sudo ./watch.sh test          # All tests (unit + integration, requires root)
-#   ./watch.sh unit               # Unit tests only (no root needed)
-#   ./watch.sh integration        # Integration tests only (requires root)
+#   ./watch.sh test               # All tests
+#   ./watch.sh unit               # Unit tests only
+#   ./watch.sh integration        # Integration tests only
 #   ./watch.sh check              # Quick check
 #   ./watch.sh build              # Build release
 #   ./watch.sh clippy             # Lints
+#   ./watch.sh run                # Build + run with sudo (only binary is elevated)
 
 set -uo pipefail  # Removed -e so errors don't exit
 
@@ -93,6 +94,12 @@ run_command() {
             cargo clippy --all-targets --all-features --color=always 2>&1 || exit_code=$?
             print_footer $exit_code
             ;;
+        run)
+            print_header "Build + Run"
+            cargo build --release --color=always 2>&1 || { exit_code=$?; print_footer $exit_code; return 0; }
+            sudo RUST_LOG=info ./target/release/leshy "${CONFIG:-config.example.toml}" 2>&1 || exit_code=$?
+            print_footer $exit_code
+            ;;
         all)
             print_header "Full Test Suite"
             cargo fmt --check 2>&1 || true
@@ -102,7 +109,7 @@ run_command() {
             ;;
         *)
             echo -e "${RED}Unknown command: $CMD${NC}" >&2
-            echo "Available: test, unit, integration, check, build, clippy, all" >&2
+            echo "Available: test, unit, integration, check, build, clippy, run, all" >&2
             return 1
             ;;
     esac

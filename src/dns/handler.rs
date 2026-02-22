@@ -1,4 +1,5 @@
-use crate::config::{Config, DnsProtocol};
+use crate::config::{Config, DnsProtocol, DnsServerConfig, ServerConfig, ZoneConfig};
+use crate::dns::cache::DnsCache;
 use crate::routing::RouteManager;
 use crate::zones::ZoneMatcher;
 use hickory_proto::op::{Message, MessageType, OpCode, ResponseCode};
@@ -7,6 +8,7 @@ use hickory_server::authority::MessageResponseBuilder;
 use hickory_server::server::{Request, RequestHandler, ResponseHandler, ResponseInfo};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::RwLock;
 
@@ -14,16 +16,19 @@ pub struct DnsHandler {
     config: Arc<Config>,
     matcher: Arc<ZoneMatcher>,
     route_manager: Arc<RwLock<RouteManager>>,
+    cache: Arc<DnsCache>,
 }
 
 impl DnsHandler {
     pub fn new(config: Config, matcher: ZoneMatcher) -> anyhow::Result<Self> {
         let route_manager = RouteManager::new()?;
+        let cache = Arc::new(DnsCache::new(config.server.cache_size));
 
         Ok(Self {
             config: Arc::new(config),
             matcher: Arc::new(matcher),
             route_manager: Arc::new(RwLock::new(route_manager)),
+            cache,
         })
     }
 
@@ -254,7 +259,10 @@ impl DnsHandler {
 
     /// Returns true if any zone has static routes configured
     pub fn has_static_routes(&self) -> bool {
-        self.config.zones.iter().any(|z| !z.static_routes.is_empty())
+        self.config
+            .zones
+            .iter()
+            .any(|z| !z.static_routes.is_empty())
     }
 
     /// Update config and matcher (for hot reload)
@@ -263,10 +271,49 @@ impl DnsHandler {
         new_config: Config,
         new_matcher: ZoneMatcher,
     ) -> anyhow::Result<()> {
+        // Recreate cache if size changed, otherwise just clear
+        if new_config.server.cache_size != self.config.server.cache_size {
+            self.cache = Arc::new(DnsCache::new(new_config.server.cache_size));
+        } else {
+            self.cache.clear();
+        }
         self.config = Arc::new(new_config);
         self.matcher = Arc::new(new_matcher);
-        tracing::debug!("Handler config updated");
+        tracing::debug!("Handler config updated, cache cleared");
         Ok(())
+    }
+}
+
+/// Compute cache TTL using the server → zone → global cascade.
+fn resolve_cache_ttl(
+    server_cfg: Option<&DnsServerConfig>,
+    zone: Option<&ZoneConfig>,
+    global: &ServerConfig,
+    message: &Message,
+) -> Duration {
+    let min_ttl = server_cfg
+        .and_then(|s| s.cache_min_ttl)
+        .or(zone.and_then(|z| z.cache_min_ttl))
+        .unwrap_or(global.cache_min_ttl);
+    let max_ttl = server_cfg
+        .and_then(|s| s.cache_max_ttl)
+        .or(zone.and_then(|z| z.cache_max_ttl))
+        .unwrap_or(global.cache_max_ttl);
+    let negative_ttl = server_cfg
+        .and_then(|s| s.cache_negative_ttl)
+        .or(zone.and_then(|z| z.cache_negative_ttl))
+        .unwrap_or(global.cache_negative_ttl);
+
+    if message.response_code() == ResponseCode::NXDomain || message.answers().is_empty() {
+        Duration::from_secs(negative_ttl)
+    } else {
+        let record_min = message
+            .answers()
+            .iter()
+            .map(|r| r.ttl() as u64)
+            .min()
+            .unwrap_or(min_ttl);
+        Duration::from_secs(record_min.clamp(min_ttl, max_ttl))
     }
 }
 
@@ -290,40 +337,73 @@ impl RequestHandler for DnsHandler {
 
         tracing::info!(qname = qname, qtype = ?qtype, "Received query");
 
+        // Check cache before forwarding
+        if self.cache.is_enabled() {
+            if let Some(cached) = self.cache.lookup(&qname, qtype) {
+                tracing::debug!(qname = qname, qtype = ?qtype, "Cache hit");
+
+                // Still add routes from cached response
+                self.add_routes_from_response(&cached, &qname).await;
+
+                // Use the current request's ID so the client matches the response
+                let mut header = *cached.header();
+                header.set_id(request.id());
+
+                let builder = MessageResponseBuilder::from_message_request(request);
+                let response_msg = builder.build(
+                    header,
+                    cached.answers().iter(),
+                    cached.name_servers().iter(),
+                    std::iter::empty(),
+                    cached.additionals().iter(),
+                );
+                return response_handle.send_response(response_msg).await.unwrap();
+            }
+        }
+
         // Find matching zone and determine upstream servers + protocol
         let zone = self.matcher.find_zone(&qname);
-        let (upstreams, protocol) = match &zone {
-            Some(z) if !z.dns_servers.is_empty() => {
-                tracing::debug!(
-                    qname = qname,
-                    zone = z.name,
-                    upstreams = ?z.dns_servers,
-                    protocol = ?z.dns_protocol,
-                    "Routing to zone DNS"
-                );
-                (z.dns_servers.as_slice(), z.dns_protocol)
-            }
-            _ => {
-                tracing::debug!(
-                    qname = qname,
-                    upstreams = ?self.config.server.default_upstream,
-                    "Routing to default DNS"
-                );
-                (self.config.server.default_upstream.as_slice(), DnsProtocol::Udp)
-            }
-        };
+        let (upstreams, protocol): (Vec<(SocketAddr, Option<&DnsServerConfig>)>, DnsProtocol) =
+            match &zone {
+                Some(z) if !z.dns_servers.is_empty() => {
+                    tracing::debug!(
+                        qname = qname,
+                        zone = z.name,
+                        servers = ?z.dns_servers.iter().map(|s| s.address).collect::<Vec<_>>(),
+                        protocol = ?z.dns_protocol,
+                        "Routing to zone DNS"
+                    );
+                    let ups = z.dns_servers.iter().map(|s| (s.address, Some(s))).collect();
+                    (ups, z.dns_protocol)
+                }
+                _ => {
+                    tracing::debug!(
+                        qname = qname,
+                        upstreams = ?self.config.server.default_upstream,
+                        "Routing to default DNS"
+                    );
+                    let ups = self
+                        .config
+                        .server
+                        .default_upstream
+                        .iter()
+                        .map(|&a| (a, None))
+                        .collect();
+                    (ups, DnsProtocol::Udp)
+                }
+            };
 
         // Sequential failover: try servers in order, fail only when all exhausted
         let mut last_err = ResponseCode::ServFail;
-        let mut result = None;
-        for (i, &upstream) in upstreams.iter().enumerate() {
+        let mut result: Option<(Message, Option<&DnsServerConfig>)> = None;
+        for (i, (upstream, server_cfg)) in upstreams.iter().enumerate() {
             let res = match protocol {
-                DnsProtocol::Udp => self.forward_query(request, upstream).await,
-                DnsProtocol::Tcp => self.forward_query_tcp(request, upstream).await,
+                DnsProtocol::Udp => self.forward_query(request, *upstream).await,
+                DnsProtocol::Tcp => self.forward_query_tcp(request, *upstream).await,
             };
             match res {
                 Ok(response) => {
-                    result = Some(response);
+                    result = Some((response, *server_cfg));
                     break;
                 }
                 Err(rcode) => {
@@ -340,7 +420,7 @@ impl RequestHandler for DnsHandler {
         }
 
         match result {
-            Some(response) => {
+            Some((response, server_cfg)) => {
                 tracing::debug!(
                     qname = qname,
                     answers = response.answers().len(),
@@ -349,6 +429,17 @@ impl RequestHandler for DnsHandler {
 
                 // Add routes for resolved IPs (async, don't wait)
                 self.add_routes_from_response(&response, &qname).await;
+
+                // Cache the response (skip ServFail)
+                if self.cache.is_enabled() && response.response_code() != ResponseCode::ServFail {
+                    let ttl = resolve_cache_ttl(
+                        server_cfg,
+                        zone.as_deref(),
+                        &self.config.server,
+                        &response,
+                    );
+                    self.cache.insert(&qname, qtype, response.clone(), ttl);
+                }
 
                 // Convert Message to MessageResponse
                 let builder = MessageResponseBuilder::from_message_request(request);

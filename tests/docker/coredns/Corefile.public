@@ -1,0 +1,20 @@
+. {
+    bind 172.28.0.10
+    hosts {
+        93.184.216.34  example.com
+        93.184.216.34  www.example.com
+        93.184.215.14  example.org
+        93.184.215.14  www.example.org
+        93.184.216.34  example.net
+        93.184.216.34  www.example.net
+        142.250.80.46  google.com
+        142.250.80.46  www.google.com
+        140.82.121.4   github.com
+        140.82.121.4   www.github.com
+        104.16.132.229 cloudflare.com
+        185.199.108.153 docker.io
+        fallthrough
+    }
+    log
+    errors
+}
