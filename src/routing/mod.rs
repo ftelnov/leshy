@@ -1,15 +1,17 @@
+mod aggregator;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
 
 use crate::config::{RouteType, ZoneConfig};
+use aggregator::{RouteAction, RouteAggregator};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use std::collections::{HashMap, HashSet};
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 
 #[cfg(target_os = "linux")]
 use linux::LinuxRouteAdder as PlatformRouteAdder;
@@ -20,29 +22,93 @@ use macos::MacosRouteAdder as PlatformRouteAdder;
 pub(crate) trait RouteAdder: Send + Sync {
     async fn add_via_route(&self, ip: IpAddr, prefix_len: u8, gateway: &str) -> Result<()>;
     async fn add_dev_route(&self, ip: IpAddr, prefix_len: u8, device: &str) -> Result<()>;
+    async fn remove_route(&self, ip: IpAddr, prefix_len: u8) -> Result<()>;
 }
 
 pub struct RouteManager {
     adder: PlatformRouteAdder,
     zone_routes: Arc<RwLock<HashMap<String, HashSet<IpAddr>>>>,
+    aggregator: Mutex<RouteAggregator>,
 }
 
 impl RouteManager {
-    pub fn new() -> Result<Self> {
+    pub fn new(aggregation_prefix: Option<u8>) -> Result<Self> {
         let adder = PlatformRouteAdder::new()?;
         Ok(Self {
             adder,
             zone_routes: Arc::new(RwLock::new(HashMap::new())),
+            aggregator: Mutex::new(RouteAggregator::new(aggregation_prefix)),
         })
     }
 
-    /// Add a route for the given IP based on zone configuration (uses /32 or /128 prefix)
+    /// Add a route for the given IP based on zone configuration.
+    /// For IPv4 with aggregation enabled, installs a wider CIDR prefix.
+    /// For IPv6, always uses /128 (no aggregation).
     pub async fn add_route(&self, ip: IpAddr, zone: &ZoneConfig) -> Result<()> {
-        let prefix_len = match ip {
-            IpAddr::V4(_) => 32,
-            IpAddr::V6(_) => 128,
+        match ip {
+            IpAddr::V4(v4) => self.add_route_v4(v4, zone).await,
+            IpAddr::V6(_) => self.add_route_simple(ip, 128, zone).await,
+        }
+    }
+
+    async fn add_route_v4(&self, ip: Ipv4Addr, zone: &ZoneConfig) -> Result<()> {
+        let actions = {
+            let mut agg = self.aggregator.lock().await;
+            agg.process_ip(ip, &zone.name, zone.route_type, &zone.route_target)
         };
 
+        if actions.is_empty() {
+            return Ok(());
+        }
+
+        for action in &actions {
+            self.execute_action(action).await?;
+        }
+
+        let mut routes = self.zone_routes.write().await;
+        routes
+            .entry(zone.name.clone())
+            .or_default()
+            .insert(IpAddr::V4(ip));
+
+        Ok(())
+    }
+
+    /// Execute a single RouteAction against the kernel.
+    async fn execute_action(&self, action: &RouteAction) -> Result<()> {
+        match action {
+            RouteAction::Add {
+                network,
+                prefix_len,
+                route_type,
+                route_target,
+            } => {
+                let ip = IpAddr::V4(*network);
+                match route_type {
+                    RouteType::Via => {
+                        self.adder
+                            .add_via_route(ip, *prefix_len, route_target)
+                            .await
+                    }
+                    RouteType::Dev => {
+                        let device = self.read_device_file(route_target).await?;
+                        self.adder.add_dev_route(ip, *prefix_len, &device).await
+                    }
+                }
+            }
+            RouteAction::Remove {
+                network,
+                prefix_len,
+            } => {
+                self.adder
+                    .remove_route(IpAddr::V4(*network), *prefix_len)
+                    .await
+            }
+        }
+    }
+
+    /// Simple route add without aggregation (used for IPv6).
+    async fn add_route_simple(&self, ip: IpAddr, prefix_len: u8, zone: &ZoneConfig) -> Result<()> {
         let result = match zone.route_type {
             RouteType::Via => {
                 self.adder
@@ -63,11 +129,19 @@ impl RouteManager {
         result
     }
 
-    /// Add a static route from a CIDR string (e.g. "149.154.160.0/20" or "1.2.3.4")
+    /// Add a static route from a CIDR string (e.g. "149.154.160.0/20" or "1.2.3.4").
+    /// Static routes bypass aggregation but register their IPs so aggregates don't overlap.
     pub async fn add_static_route(&self, cidr: &str, zone: &ZoneConfig) -> Result<()> {
         let (ip, prefix_len) = parse_cidr(cidr)?;
 
         tracing::info!(cidr = cidr, zone = zone.name, "Adding static route");
+
+        // Register individual IPs in the aggregator so future aggregates
+        // don't accidentally cover them
+        if let IpAddr::V4(v4) = ip {
+            let mut agg = self.aggregator.lock().await;
+            agg.register_static_ip(v4, &zone.name);
+        }
 
         let result = match zone.route_type {
             RouteType::Via => {
@@ -126,6 +200,10 @@ impl RouteManager {
         } else {
             tracing::debug!(zone = zone_name, "Zone has no tracked routes");
         }
+
+        // Also clean up aggregator state
+        let mut agg = self.aggregator.lock().await;
+        agg.cleanup_zone(zone_name);
 
         Ok(())
     }

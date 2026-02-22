@@ -99,6 +99,38 @@ Four jobs in `.github/workflows/ci.yml`:
 - **integration-macos** — Native tests on macOS (CoreDNS via brew, loopback aliases, sudo route)
 - **build** — Release build + artifact upload on ubuntu + macos
 
+### Verifying CI (push-until-green workflow)
+
+After pushing changes, monitor CI and fix failures iteratively:
+
+```bash
+# 1. Push your changes
+git push
+
+# 2. Watch the triggered run (blocks until complete)
+gh run watch $(gh run list --limit 1 --json databaseId -q '.[0].databaseId') --exit-status
+
+# 3. If it fails, inspect the failed job logs
+gh run view <run-id> --log-failed
+
+# 4. Fix, commit, push, repeat until all 6 jobs pass
+```
+
+Common CI failures and fixes:
+
+- **`cargo fmt` diff** — Local rustfmt version may differ from CI's. Run `cargo fmt` and verify with `cargo fmt -- --check` before pushing. Format ALL files, not just the ones you touched.
+- **macOS pip `externally-managed-environment`** — Use a venv: `python3 -m venv /tmp/venv && /tmp/venv/bin/pip install ...`
+- **CoreDNS listen address** — CoreDNS doesn't have a `-dns.addr` flag. Use `bind <ip>` directive inside the Corefile instead.
+- **macOS route table format** — `netstat -rn` trims trailing `.0` octets (e.g. `10.99/24` instead of `10.99.0.0/24`). Write assertions that match both formats.
+
+After all jobs are green, squash any fix-up commits into the original and force push:
+
+```bash
+git reset --soft <original-commit>
+git commit --amend --no-edit
+git push --force
+```
+
 ## Config Format
 
 See `config.example.toml` for full reference. Key concepts:

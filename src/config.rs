@@ -44,6 +44,12 @@ pub struct ServerConfig {
     /// TTL for NXDOMAIN / empty responses (seconds)
     #[serde(default = "default_cache_negative_ttl")]
     pub cache_negative_ttl: u64,
+
+    /// CIDR prefix length for route aggregation (e.g. 22 = /22, 1024 IPs).
+    /// When set, DNS-resolved IPv4 addresses are grouped into wider subnets
+    /// to reduce the number of kernel routes. Unset or 32 = disabled.
+    #[serde(default)]
+    pub route_aggregation_prefix: Option<u8>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -283,6 +289,13 @@ impl Config {
                     "Zone '{}' must have at least one domain, pattern, or static route",
                     zone.name
                 );
+            }
+        }
+
+        // Validate route_aggregation_prefix
+        if let Some(prefix) = self.server.route_aggregation_prefix {
+            if !(8..=32).contains(&prefix) {
+                anyhow::bail!("route_aggregation_prefix must be between 8 and 32, got {prefix}");
             }
         }
 

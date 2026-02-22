@@ -2,7 +2,7 @@ use super::RouteAdder;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use futures::TryStreamExt;
-use netlink_packet_route::route::{RouteAddress, RouteScope};
+use netlink_packet_route::route::{RouteAddress, RouteProtocol, RouteScope};
 use rtnetlink::{new_connection, Handle};
 use std::net::IpAddr;
 
@@ -142,6 +142,51 @@ impl RouteAdder for LinuxRouteAdder {
             }
             Err(e) => {
                 tracing::error!(ip = %ip, error = %e, "Failed to add route");
+                Err(e.into())
+            }
+        }
+    }
+
+    async fn remove_route(&self, ip: IpAddr, prefix_len: u8) -> Result<()> {
+        tracing::info!(ip = %ip, prefix_len = prefix_len, "Removing route");
+
+        let result = match ip {
+            IpAddr::V4(addr) => {
+                let mut msg = netlink_packet_route::route::RouteMessage::default();
+                msg.header.destination_prefix_length = prefix_len;
+                msg.header.protocol = RouteProtocol::Boot;
+                msg.attributes
+                    .push(netlink_packet_route::route::RouteAttribute::Destination(
+                        RouteAddress::Inet(addr),
+                    ));
+                self.handle.route().del(msg).execute().await
+            }
+            IpAddr::V6(addr) => {
+                let mut msg = netlink_packet_route::route::RouteMessage::default();
+                msg.header.destination_prefix_length = prefix_len;
+                msg.header.protocol = RouteProtocol::Boot;
+                msg.header.address_family = netlink_packet_route::AddressFamily::Inet6;
+                msg.attributes
+                    .push(netlink_packet_route::route::RouteAttribute::Destination(
+                        RouteAddress::Inet6(addr),
+                    ));
+                self.handle.route().del(msg).execute().await
+            }
+        };
+
+        match result {
+            Ok(_) => {
+                tracing::debug!(ip = %ip, prefix_len = prefix_len, "Route removed successfully");
+                Ok(())
+            }
+            Err(rtnetlink::Error::NetlinkError(err)) if matches!(err.code, Some(code) if code.get() == -3) =>
+            {
+                // ESRCH = no such route, not an error
+                tracing::debug!(ip = %ip, "Route does not exist, nothing to remove");
+                Ok(())
+            }
+            Err(e) => {
+                tracing::error!(ip = %ip, error = %e, "Failed to remove route");
                 Err(e.into())
             }
         }

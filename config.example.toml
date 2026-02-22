@@ -30,6 +30,12 @@ cache_min_ttl = 60
 cache_max_ttl = 3600
 cache_negative_ttl = 30
 
+# Route aggregation: group DNS-resolved IPs into wider CIDR prefixes
+# to reduce kernel routing table size. Value is the prefix length (e.g. 24 = /24).
+# Unset or 32 = disabled (each IP gets its own /32 route).
+# Recommended: 22 (1024 IPs per aggregate) or 24 (256 IPs per aggregate).
+# route_aggregation_prefix = 24
+
 # Example Zone 1: Corporate VPN with device-based routing
 # Routes traffic through a VPN tunnel device that may connect/disconnect
 [[zones]]

@@ -181,3 +181,17 @@ def test_all_upstreams_fail(leshy, dns_query):
 
     with pytest.raises((dns.resolver.NoNameservers, dns.resolver.LifetimeTimeout)):
         dns_query("anything.test", lifetime=10)
+
+
+def test_route_aggregation(leshy, dns_query, get_routes):
+    """With route_aggregation_prefix=24, route shows /24 network instead of /32."""
+    leshy("aggregation.toml")
+
+    dns_query("cloudflare.com")
+    time.sleep(0.5)
+
+    routes = get_routes()
+    # 104.16.132.229 should be aggregated into 104.16.132.0/24
+    # Linux: "104.16.132.0/24", macOS netstat: "104.16.132/24" (trims trailing .0 octets)
+    assert "104.16.132.0/24" in routes or "104.16.132/24" in routes
+    assert "172.28.0.1" in routes

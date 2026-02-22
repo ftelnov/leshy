@@ -21,7 +21,7 @@ pub struct DnsHandler {
 
 impl DnsHandler {
     pub fn new(config: Config, matcher: ZoneMatcher) -> anyhow::Result<Self> {
-        let route_manager = RouteManager::new()?;
+        let route_manager = RouteManager::new(config.server.route_aggregation_prefix)?;
         let cache = Arc::new(DnsCache::new(config.server.cache_size));
 
         Ok(Self {
