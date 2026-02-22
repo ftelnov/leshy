@@ -195,3 +195,50 @@ def test_route_aggregation(leshy, dns_query, get_routes):
     # Linux: "104.16.132.0/24", macOS netstat: "104.16.132/24" (trims trailing .0 octets)
     assert "104.16.132.0/24" in routes or "104.16.132/24" in routes
     assert "172.28.0.1" in routes
+
+
+def test_exclusive_zone(leshy, dns_query, get_routes):
+    """Exclusive zone routes everything except excluded domains/patterns."""
+    leshy("exclusive-zone.toml")
+
+    # Corporate domain → resolved via corporate DNS (inclusive zone first)
+    answer = dns_query("internal.company.com")
+    ips = [rr.address for rr in answer]
+    assert "10.0.1.1" in ips
+
+    # Non-excluded domain → exclusive zone catches it, route added
+    dns_query("example.de")
+    time.sleep(0.5)
+    routes = get_routes()
+    assert "93.184.216.100" in routes
+    assert "172.28.0.1" in routes
+
+    # Excluded domain (google.com) → resolves but NO route
+    dns_query("google.com")
+    time.sleep(0.5)
+    routes = get_routes()
+    assert "142.250.80.46" not in routes
+
+    # Excluded wildcard (*.ru) → resolves but NO route
+    dns_query("yandex.ru")
+    time.sleep(0.5)
+    routes = get_routes()
+    assert "77.88.55.242" not in routes
+
+
+def test_wildcard_pattern(leshy, dns_query, get_routes):
+    """Wildcard pattern *.ru matches .ru domains."""
+    leshy("wildcard-pattern.toml")
+
+    # yandex.ru matches *.ru → route added
+    dns_query("yandex.ru")
+    time.sleep(0.5)
+    routes = get_routes()
+    assert "77.88.55.242" in routes
+    assert "172.28.0.1" in routes
+
+    # google.com doesn't match *.ru → no route
+    dns_query("google.com")
+    time.sleep(0.5)
+    routes = get_routes()
+    assert "142.250.80.46" not in routes

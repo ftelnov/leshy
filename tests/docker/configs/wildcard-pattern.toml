@@ -1,0 +1,12 @@
+[server]
+listen_address = "0.0.0.0:10053"
+default_upstream = ["172.28.0.10:53"]
+route_failure_mode = "fallback"
+
+[[zones]]
+name = "ru-zone"
+dns_servers = []
+route_type = "via"
+route_target = "172.28.0.1"
+domains = []
+patterns = ['\.ru$']

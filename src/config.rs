@@ -80,6 +80,12 @@ fn default_cache_negative_ttl() -> u64 {
 pub struct ZoneConfig {
     pub name: String,
 
+    /// Zone matching mode: "inclusive" (default) or "exclusive"
+    /// Inclusive: matches only listed domains/patterns
+    /// Exclusive: matches everything EXCEPT listed domains/patterns
+    #[serde(default)]
+    pub mode: ZoneMode,
+
     /// DNS servers for this zone. Empty = use default upstream.
     /// Supports both simple format: ["10.44.2.2:53"]
     /// and rich format: [{ address = "10.44.2.2:53", cache_min_ttl = 10 }]
@@ -167,6 +173,16 @@ pub enum DnsProtocol {
     #[default]
     Udp,
     Tcp,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ZoneMode {
+    /// Match only listed domains/patterns (default)
+    #[default]
+    Inclusive,
+    /// Match everything EXCEPT listed domains/patterns
+    Exclusive,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -283,12 +299,27 @@ impl Config {
 
         // Validate zones
         for zone in &self.zones {
-            if zone.domains.is_empty() && zone.patterns.is_empty() && zone.static_routes.is_empty()
+            if zone.mode == ZoneMode::Inclusive
+                && zone.domains.is_empty()
+                && zone.patterns.is_empty()
+                && zone.static_routes.is_empty()
             {
                 anyhow::bail!(
                     "Zone '{}' must have at least one domain, pattern, or static route",
                     zone.name
                 );
+            }
+
+            // Validate pattern regexes
+            for pattern in &zone.patterns {
+                if let Err(e) = regex::Regex::new(pattern) {
+                    anyhow::bail!(
+                        "Zone '{}': invalid regex pattern '{}': {}",
+                        zone.name,
+                        pattern,
+                        e
+                    );
+                }
             }
         }
 

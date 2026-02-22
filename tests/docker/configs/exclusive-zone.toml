@@ -1,0 +1,23 @@
+[server]
+listen_address = "0.0.0.0:10053"
+default_upstream = ["172.28.0.10:53"]
+route_failure_mode = "fallback"
+
+# Inclusive zone: corporate domains via corporate DNS
+[[zones]]
+name = "corporate"
+dns_servers = ["172.28.0.20:53"]
+route_type = "via"
+route_target = "172.28.0.1"
+domains = ["internal.company.com"]
+patterns = []
+
+# Exclusive zone: route everything through gateway EXCEPT *.ru and google.com
+[[zones]]
+name = "vpn-all"
+mode = "exclusive"
+dns_servers = []
+route_type = "via"
+route_target = "172.28.0.1"
+domains = ["google.com"]
+patterns = ['\.ru$']
