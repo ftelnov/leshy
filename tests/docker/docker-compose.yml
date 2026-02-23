@@ -19,6 +19,16 @@ services:
       testnet:
         ipv4_address: 172.28.0.20
 
+  broken-dns:
+    image: coredns/coredns:latest
+    container_name: leshy-broken-dns
+    command: -conf /etc/coredns/Corefile
+    volumes:
+      - ./coredns/Corefile.broken:/etc/coredns/Corefile:ro
+    networks:
+      testnet:
+        ipv4_address: 172.28.0.30
+
   test-runner:
     build:
       context: ../..
@@ -29,6 +39,7 @@ services:
     depends_on:
       - public-dns
       - corporate-dns
+      - broken-dns
     networks:
       testnet:
         ipv4_address: 172.28.0.100

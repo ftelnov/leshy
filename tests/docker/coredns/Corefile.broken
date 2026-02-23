@@ -1,0 +1,7 @@
+. {
+    bind 172.28.0.30
+    template ANY ANY {
+        rcode REFUSED
+    }
+    log
+}

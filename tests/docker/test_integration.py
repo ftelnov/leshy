@@ -175,6 +175,16 @@ def test_upstream_failover(leshy, dns_query):
     assert "185.199.108.153" in ips
 
 
+def test_servfail_failover(leshy, dns_query):
+    """First upstream returns REFUSED, falls over to second and resolves."""
+    leshy("servfail-failover.toml")
+
+    # 172.28.0.30 returns REFUSED; leshy should fail over to 172.28.0.10
+    answer = dns_query("github.com")
+    ips = [rr.address for rr in answer]
+    assert "140.82.121.4" in ips
+
+
 def test_all_upstreams_fail(leshy, dns_query):
     """All upstreams unreachable returns SERVFAIL."""
     leshy("all-fail.toml")
