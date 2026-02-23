@@ -393,7 +393,8 @@ impl RequestHandler for DnsHandler {
                 }
             };
 
-        // Sequential failover: try servers in order, fail only when all exhausted
+        // Sequential failover: try servers in order, fail only when all exhausted.
+        // Both transport errors and SERVFAIL/REFUSED responses trigger failover.
         let mut last_err = ResponseCode::ServFail;
         let mut result: Option<(Message, Option<&DnsServerConfig>)> = None;
         for (i, (upstream, server_cfg)) in upstreams.iter().enumerate() {
@@ -402,6 +403,19 @@ impl RequestHandler for DnsHandler {
                 DnsProtocol::Tcp => self.forward_query_tcp(request, *upstream).await,
             };
             match res {
+                Ok(response)
+                    if response.response_code() == ResponseCode::ServFail
+                        || response.response_code() == ResponseCode::Refused =>
+                {
+                    tracing::warn!(
+                        qname = qname,
+                        upstream = %upstream,
+                        rcode = ?response.response_code(),
+                        remaining = upstreams.len() - i - 1,
+                        "Upstream returned error response, trying next"
+                    );
+                    last_err = response.response_code();
+                }
                 Ok(response) => {
                     result = Some((response, *server_cfg));
                     break;

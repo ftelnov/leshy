@@ -156,6 +156,28 @@ Rules:
 - Always a single commit for the version bump.
 - Push both the commit and the tag in the same step.
 
+## Commit and PR Workflow
+
+### Authorship
+
+NEVER add `Co-Authored-By` or any other authorship trailers to commits.
+
+### Creating a Pull Request
+
+Follow this strict sequence — no shortcuts:
+
+1. **Ensure CI is green.** Push the branch and wait for the pipeline to pass. Use the push-until-green workflow (see "Verifying CI" above). Do NOT create a PR until all jobs are green.
+
+2. **Self-review with a subagent.** Once CI passes, launch an Opus 4.6 subagent to perform an initial PR review. The subagent should:
+   - Read all changed files in the PR diff.
+   - Check for correctness, style, missing tests, security issues, and adherence to project conventions.
+   - Suggest concrete refinements if needed.
+   - Apply the refinements, re-run CI, and confirm it is still green.
+
+3. **Request human review.** Only after the subagent review and refinement cycle is complete, inform the user that the PR is ready for their review. Provide the PR URL.
+
+In summary: **green CI → self-review & refine → human review**. Never skip the self-review step.
+
 ## Config Format
 
 See `config.example.toml` for full reference. Key concepts:
