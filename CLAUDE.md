@@ -160,11 +160,7 @@ Rules:
 
 ### Authorship
 
-Always include the `Co-Authored-By` trailer in every commit. Never omit it, even when amending or squashing:
-
-```
-Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
-```
+NEVER add `Co-Authored-By` or any other authorship trailers to commits.
 
 ### Creating a Pull Request
 
