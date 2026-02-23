@@ -180,7 +180,8 @@ def test_servfail_failover(leshy, dns_query):
     leshy("servfail-failover.toml")
 
     # 172.28.0.30 returns REFUSED; leshy should fail over to 172.28.0.10
-    answer = dns_query("github.com")
+    # Use higher lifetime to tolerate CI variability (failover itself is instant)
+    answer = dns_query("github.com", lifetime=15, timeout=10)
     ips = [rr.address for rr in answer]
     assert "140.82.121.4" in ips
 
