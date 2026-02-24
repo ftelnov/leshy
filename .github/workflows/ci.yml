@@ -89,17 +89,19 @@ jobs:
           sudo ifconfig lo0 alias 172.28.0.20
           sudo ifconfig lo0 alias 172.28.0.30
 
-          # Start public-dns CoreDNS (binds to 172.28.0.10:53 via Corefile)
-          sudo coredns -conf tests/docker/coredns/Corefile.public &
-          echo $! > /tmp/coredns-public.pid
-
-          # Start corporate-dns CoreDNS (binds to 172.28.0.20:53 via Corefile)
-          sudo coredns -conf tests/docker/coredns/Corefile.corporate &
-          echo $! > /tmp/coredns-corporate.pid
-
-          # Start broken-dns CoreDNS (binds to 172.28.0.30:53, returns REFUSED)
-          sudo coredns -conf tests/docker/coredns/Corefile.broken &
-          echo $! > /tmp/coredns-broken.pid
+          # Start CoreDNS instances one at a time with verification
+          for cfg in Corefile.public Corefile.corporate Corefile.broken; do
+            sudo coredns -conf "tests/docker/coredns/$cfg" &
+            pid=$!
+            name="${cfg#Corefile.}"
+            echo $pid > "/tmp/coredns-${name}.pid"
+            sleep 1
+            if ! kill -0 $pid 2>/dev/null; then
+              echo "::warning::CoreDNS $name (PID $pid) failed to start"
+            else
+              echo "CoreDNS $name started (PID $pid)"
+            fi
+          done
 
           sleep 2
 

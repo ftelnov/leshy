@@ -178,6 +178,12 @@ Follow this strict sequence — no shortcuts:
 
 In summary: **green CI → self-review & refine → human review**. Never skip the self-review step.
 
+## Documentation Style
+
+- Use **Mermaid diagrams** (not ASCII art) for all diagrams in documentation and markdown files.
+- In Mermaid node labels, use `<br/>` for line breaks (not `\n`). Example: `["Line 1<br/>Line 2"]`.
+- The README already uses Mermaid; all docs under `docs/` must follow the same convention.
+
 ## Config Format
 
 See `config.example.toml` for full reference. Key concepts:

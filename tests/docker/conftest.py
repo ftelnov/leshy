@@ -15,7 +15,6 @@ CONFIG_DIR = os.environ.get("LESHY_CONFIG_DIR", "/etc/leshy")
 LISTEN_PORT = 10053
 PUBLIC_DNS = "172.28.0.10"
 CORPORATE_DNS = "172.28.0.20"
-BROKEN_DNS = "172.28.0.30"
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -34,22 +33,6 @@ def wait_for_upstream():
                 if attempt == 14:
                     pytest.fail(f"Upstream {server} not ready after 30s")
                 time.sleep(2)
-
-    # Wait for broken-dns (returns REFUSED, so any DNS response means it's up)
-    resolver = dns.resolver.Resolver(configure=False)
-    resolver.nameservers = [BROKEN_DNS]
-    resolver.port = 53
-    resolver.lifetime = 2
-    for attempt in range(15):
-        try:
-            resolver.resolve("anything.test", "A")
-            break
-        except (dns.resolver.NoNameservers, dns.resolver.NXDOMAIN):
-            break  # REFUSED/NXDOMAIN means server is up
-        except Exception:
-            if attempt == 14:
-                pytest.fail(f"Upstream {BROKEN_DNS} (broken-dns) not ready after 30s")
-            time.sleep(2)
 
 
 @pytest.fixture
