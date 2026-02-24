@@ -72,6 +72,39 @@ See [config.example.toml](config.example.toml) for all options.
 
 Traditional split-tunnel tools like `vpn-slice` hardcode IPs in `/etc/hosts`, which breaks isolated networking (Docker builds, sandboxes). Leshy runs as a DNS server -- all apps get correct routing transparently.
 
+## Example: Route Everything Except .ru Through a European VPN
+
+A common setup: you have a WireGuard/OpenVPN tunnel to a European server and want **all** traffic to go through it -- except Russian domains (.ru, .рф, .su) which should go direct.
+
+```mermaid
+flowchart LR
+    App -- DNS query --> Leshy
+    Leshy -- ".ru / .рф / .su" --> Direct["Default route<br/>(direct)"]
+    Leshy -- "everything else" --> EU["Europe VPN<br/>wg0"]
+```
+
+```toml
+[server]
+listen_address = "127.0.0.53:53"
+default_upstream = ["8.8.8.8:53", "1.1.1.1:53"]
+
+[[zones]]
+name = "eu-vpn"
+mode = "exclusive"              # route everything EXCEPT matched domains
+dns_servers = []                # use default upstream
+route_type = "dev"
+route_target = "/run/vpn/eu.dev"
+# These domains are EXCLUDED from the VPN (go direct):
+domains = []
+patterns = [
+    '\.ru$',                    # *.ru
+    '\.xn--p1ai$',             # *.рф (punycode)
+    '\.su$',                    # *.su
+]
+```
+
+Write the device file when your VPN connects (`echo wg0 > /run/vpn/eu.dev`) and every domain that isn't .ru/.рф/.su gets routed through `wg0`. Local and Russian traffic stays on your normal connection.
+
 ## Features
 
 - **Zone-based routing** -- different DNS servers and route targets per zone
@@ -119,6 +152,11 @@ echo "$TUNDEV" > /run/vpn/corporate.dev
 ```
 
 Leshy reads this file on each DNS query. When the file disappears (VPN disconnects), route addition fails gracefully and DNS responses are still returned.
+
+### Guides
+
+- **[OpenConnect (Cisco AnyConnect) Split Tunnel](docs/openconnect-split-tunnel.md)** -- connect to a Cisco VPN without it taking over your default route; Leshy routes only corporate traffic through the tunnel
+- **[SSH Tunnel + tun2socks](docs/ssh-tun2socks.md)** -- turn an SSH connection into a routable tunnel device; route selected domains through a remote server without a full VPN
 
 ---
 
@@ -176,6 +214,10 @@ make test              # fmt + clippy + unit tests
 make integration-test  # Docker e2e (12 tests)
 make watch             # auto-test on changes
 ```
+
+## Disclaimer
+
+This project is built strictly for **research and educational purposes**. It explores the possibilities of DNS-based dynamic routing and is **not intended for bypassing any government restrictions or censorship**. Users are solely responsible for ensuring their use complies with applicable laws and regulations.
 
 ## License
 
