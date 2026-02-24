@@ -1,6 +1,6 @@
 [package]
 name = "leshy"
-version = "0.2.2"
+version = "0.2.4"
 edition = "2021"
 description = "DNS-driven split-tunnel router. Resolves domains, installs kernel routes — only the traffic that needs a VPN goes through a VPN."
 license = "MIT"
