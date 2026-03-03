@@ -105,6 +105,30 @@ patterns = [
 
 Write the device file when your VPN connects (`echo wg0 > /run/vpn/eu.dev`) and every domain that isn't .ru/.рф/.su gets routed through `wg0`. Local and Russian traffic stays on your normal connection.
 
+### IP Exclusion Ranges
+
+In exclusive zones, `static_routes` serve a dual purpose: they define IP ranges to **exclude from routing**. When a DNS-resolved IP falls within any CIDR in `static_routes`, Leshy skips route installation entirely.
+
+This is useful when you want most traffic through a VPN, but need certain IP ranges (like RFC1918 private networks) to go direct:
+
+```toml
+[[zones]]
+name = "vpn-catchall"
+mode = "exclusive"
+route_type = "via"
+route_target = "10.8.0.1"
+domains = []       # don't exclude any domains
+patterns = []      # don't exclude any patterns
+static_routes = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+```
+
+With this config:
+- `internal.company.com` → resolves to `10.0.5.50` → **no route** (in 10.0.0.0/8)
+- `printer.local` → resolves to `192.168.1.100` → **no route** (in 192.168.0.0/16)
+- `example.com` → resolves to `93.184.216.34` → **route via 10.8.0.1** (not excluded)
+
+This ensures private network traffic (home router, local printers, etc.) bypasses the VPN even when domains aren't explicitly excluded.
+
 ## Features
 
 - **Zone-based routing** -- different DNS servers and route targets per zone
@@ -113,6 +137,7 @@ Write the device file when your VPN connects (`echo wg0 > /run/vpn/eu.dev`) and 
 - **DNS caching** -- with per-zone and per-server TTL overrides
 - **Route aggregation** -- compress /32 host routes into wider CIDR prefixes (`route_aggregation_prefix = 24`)
 - **Static routes** -- add CIDR routes on startup (`static_routes = ["10.0.0.0/8"]`)
+- **IP exclusion ranges** -- in exclusive zones, `static_routes` skip route installation for resolved IPs in those CIDRs
 - **Upstream failover** -- tries DNS servers in order, falls over on failure
 - **VPN reconnect** -- device file disappears/reappears as VPN disconnects/connects
 - **Linux + macOS** -- rtnetlink on Linux, `/sbin/route` on macOS

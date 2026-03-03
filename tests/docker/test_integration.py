@@ -254,3 +254,39 @@ def test_wildcard_pattern(leshy, dns_query, get_routes):
     time.sleep(0.5)
     routes = get_routes()
     assert "142.250.80.46" not in routes
+
+
+def test_exclusion_range(leshy, dns_query, get_routes):
+    """Exclusive zone's static_routes act as IP exclusion ranges.
+
+    DNS-resolved IPs that fall within exclusion CIDRs should NOT get routes.
+    """
+    leshy("exclusion-range.toml")
+
+    # public.example.com resolves to 192.168.1.100 (in 192.168.0.0/16 exclusion)
+    answer = dns_query("private.example.com")
+    ips = [rr.address for rr in answer]
+    assert "192.168.1.100" in ips
+
+    time.sleep(0.5)
+    routes = get_routes()
+    # IP is in exclusion range → NO route installed
+    assert "192.168.1.100" not in routes
+
+    # rfc10.example.com resolves to 10.0.5.50 (in 10.0.0.0/8 exclusion)
+    answer2 = dns_query("rfc10.example.com")
+    ips2 = [rr.address for rr in answer2]
+    assert "10.0.5.50" in ips2
+
+    time.sleep(0.5)
+    routes = get_routes()
+    # IP is in exclusion range → NO route installed
+    assert "10.0.5.50" not in routes
+
+    # example.de resolves to 93.184.216.100 (NOT in any exclusion)
+    dns_query("example.de")
+    time.sleep(0.5)
+    routes = get_routes()
+    # IP is NOT excluded → route IS installed
+    assert "93.184.216.100" in routes
+    assert "172.28.0.1" in routes

@@ -1,4 +1,4 @@
-use crate::config::{Config, DnsProtocol, DnsServerConfig, ServerConfig, ZoneConfig};
+use crate::config::{Config, DnsProtocol, DnsServerConfig, ServerConfig, ZoneConfig, ZoneMode};
 use crate::dns::cache::DnsCache;
 use crate::routing::RouteManager;
 use crate::zones::ZoneMatcher;
@@ -21,7 +21,8 @@ pub struct DnsHandler {
 
 impl DnsHandler {
     pub fn new(config: Config, matcher: ZoneMatcher) -> anyhow::Result<Self> {
-        let route_manager = RouteManager::new(config.server.route_aggregation_prefix)?;
+        let route_manager =
+            RouteManager::new(config.server.route_aggregation_prefix, &config.zones)?;
         let cache = Arc::new(DnsCache::new(config.server.cache_size));
 
         Ok(Self {
@@ -242,6 +243,10 @@ impl DnsHandler {
         let route_manager = self.route_manager.read().await;
         let mut failures = 0;
         for zone in &self.config.zones {
+            // Exclusive zones use static_routes as exclusion ranges, not actual routes
+            if zone.mode == ZoneMode::Exclusive {
+                continue;
+            }
             for cidr in &zone.static_routes {
                 if let Err(e) = route_manager.add_static_route(cidr, zone).await {
                     tracing::warn!(
@@ -262,7 +267,7 @@ impl DnsHandler {
         self.config
             .zones
             .iter()
-            .any(|z| !z.static_routes.is_empty())
+            .any(|z| z.mode != ZoneMode::Exclusive && !z.static_routes.is_empty())
     }
 
     /// Update config and matcher (for hot reload)

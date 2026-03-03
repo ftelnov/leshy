@@ -1,0 +1,16 @@
+[server]
+listen_address = "0.0.0.0:10053"
+default_upstream = ["172.28.0.10:53"]
+route_failure_mode = "fallback"
+
+# Exclusive zone: route everything through VPN, but exclude RFC1918 ranges
+# DNS-resolved IPs in 10.0.0.0/8 or 192.168.0.0/16 should NOT get routes
+[[zones]]
+name = "vpn-catchall"
+mode = "exclusive"
+dns_servers = []
+route_type = "via"
+route_target = "172.28.0.1"
+domains = []
+patterns = []
+static_routes = ["10.0.0.0/8", "192.168.0.0/16"]
