@@ -1,3 +1,3 @@
 pub mod matcher;
 
-pub use matcher::ZoneMatcher;
+pub use matcher::{MatchedZone, ZoneMatcher};

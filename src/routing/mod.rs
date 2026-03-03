@@ -4,7 +4,7 @@ mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
 
-use crate::config::{RouteType, ZoneConfig, ZoneMode};
+use crate::config::{RouteType, ZoneConfig};
 use aggregator::{RouteAction, RouteAggregator};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -12,22 +12,6 @@ use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
-
-#[derive(Debug, Clone)]
-struct ExcludedRange {
-    network: u32,
-    prefix_len: u8,
-}
-
-impl ExcludedRange {
-    fn contains_v4(&self, ip: Ipv4Addr) -> bool {
-        if self.prefix_len == 0 {
-            return true;
-        }
-        let mask = !((1u32 << (32 - self.prefix_len)) - 1);
-        (u32::from(ip) & mask) == self.network
-    }
-}
 
 #[cfg(target_os = "linux")]
 use linux::LinuxRouteAdder as PlatformRouteAdder;
@@ -45,50 +29,16 @@ pub struct RouteManager {
     adder: PlatformRouteAdder,
     zone_routes: Arc<RwLock<HashMap<String, HashSet<IpAddr>>>>,
     aggregator: Mutex<RouteAggregator>,
-    excluded_ranges: Vec<ExcludedRange>,
 }
 
 impl RouteManager {
-    pub fn new(aggregation_prefix: Option<u8>, zones: &[ZoneConfig]) -> Result<Self> {
+    pub fn new(aggregation_prefix: Option<u8>) -> Result<Self> {
         let adder = PlatformRouteAdder::new()?;
-
-        // Build excluded ranges from exclusive zones' static_routes
-        let mut excluded_ranges = Vec::new();
-        for zone in zones {
-            if zone.mode == ZoneMode::Exclusive {
-                for cidr in &zone.static_routes {
-                    match parse_cidr(cidr) {
-                        Ok((IpAddr::V4(ip), prefix_len)) => {
-                            excluded_ranges.push(ExcludedRange {
-                                network: u32::from(ip) & (!((1u32 << (32 - prefix_len)) - 1)),
-                                prefix_len,
-                            });
-                        }
-                        Ok((IpAddr::V6(_), _)) => {
-                            tracing::warn!(
-                                cidr = cidr,
-                                zone = zone.name,
-                                "IPv6 CIDR in exclusive zone static_routes is not supported for exclusion, skipping"
-                            );
-                        }
-                        Err(e) => {
-                            tracing::warn!(
-                                cidr = cidr,
-                                zone = zone.name,
-                                error = %e,
-                                "Failed to parse CIDR in exclusive zone static_routes, skipping"
-                            );
-                        }
-                    }
-                }
-            }
-        }
 
         Ok(Self {
             adder,
             zone_routes: Arc::new(RwLock::new(HashMap::new())),
             aggregator: Mutex::new(RouteAggregator::new(aggregation_prefix)),
-            excluded_ranges,
         })
     }
 
@@ -96,16 +46,6 @@ impl RouteManager {
     /// For IPv4 with aggregation enabled, installs a wider CIDR prefix.
     /// For IPv6, always uses /128 (no aggregation).
     pub async fn add_route(&self, ip: IpAddr, zone: &ZoneConfig) -> Result<()> {
-        // Skip route installation if IP falls within an excluded range
-        if self.is_excluded(ip) {
-            tracing::debug!(
-                ip = %ip,
-                zone = zone.name,
-                "IP is in excluded range, skipping route installation"
-            );
-            return Ok(());
-        }
-
         match ip {
             IpAddr::V4(v4) => self.add_route_v4(v4, zone).await,
             IpAddr::V6(_) => self.add_route_simple(ip, 128, zone).await,
@@ -275,15 +215,6 @@ impl RouteManager {
         let routes = self.zone_routes.read().await;
         routes.get(zone_name).map(|set| set.len()).unwrap_or(0)
     }
-
-    /// Check if an IP falls within any excluded range.
-    /// Returns true if IPv4 and matches any excluded_ranges entry; always false for IPv6.
-    fn is_excluded(&self, ip: IpAddr) -> bool {
-        match ip {
-            IpAddr::V4(v4) => self.excluded_ranges.iter().any(|r| r.contains_v4(v4)),
-            IpAddr::V6(_) => false,
-        }
-    }
 }
 
 /// Parse a CIDR string like "149.154.160.0/20" or plain IP "1.2.3.4"
@@ -316,99 +247,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn excluded_range_contains_host_in_prefix() {
-        let range = ExcludedRange {
-            network: u32::from(Ipv4Addr::new(10, 0, 0, 0)),
-            prefix_len: 8,
-        };
-        assert!(range.contains_v4(Ipv4Addr::new(10, 0, 0, 1)));
-        assert!(range.contains_v4(Ipv4Addr::new(10, 255, 255, 255)));
-        assert!(!range.contains_v4(Ipv4Addr::new(11, 0, 0, 0)));
-        assert!(!range.contains_v4(Ipv4Addr::new(192, 168, 1, 1)));
+    fn parse_cidr_v4_with_prefix() {
+        let (ip, prefix) = parse_cidr("10.0.0.0/8").unwrap();
+        assert_eq!(ip, IpAddr::V4(Ipv4Addr::new(10, 0, 0, 0)));
+        assert_eq!(prefix, 8);
     }
 
     #[test]
-    fn excluded_range_rfc1918() {
-        let range = ExcludedRange {
-            network: u32::from(Ipv4Addr::new(192, 168, 0, 0)),
-            prefix_len: 16,
-        };
-        assert!(range.contains_v4(Ipv4Addr::new(192, 168, 0, 0)));
-        assert!(range.contains_v4(Ipv4Addr::new(192, 168, 1, 100)));
-        assert!(range.contains_v4(Ipv4Addr::new(192, 168, 255, 255)));
-        assert!(!range.contains_v4(Ipv4Addr::new(192, 169, 0, 0)));
-        assert!(!range.contains_v4(Ipv4Addr::new(10, 0, 0, 1)));
+    fn parse_cidr_v4_host() {
+        let (ip, prefix) = parse_cidr("1.2.3.4").unwrap();
+        assert_eq!(ip, IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)));
+        assert_eq!(prefix, 32);
     }
 
     #[test]
-    fn excluded_range_host_32() {
-        let range = ExcludedRange {
-            network: u32::from(Ipv4Addr::new(1, 2, 3, 4)),
-            prefix_len: 32,
-        };
-        assert!(range.contains_v4(Ipv4Addr::new(1, 2, 3, 4)));
-        assert!(!range.contains_v4(Ipv4Addr::new(1, 2, 3, 5)));
-        assert!(!range.contains_v4(Ipv4Addr::new(1, 2, 3, 3)));
-    }
-
-    #[test]
-    fn excluded_range_zero_prefix_matches_all() {
-        let range = ExcludedRange {
-            network: 0,
-            prefix_len: 0,
-        };
-        assert!(range.contains_v4(Ipv4Addr::new(0, 0, 0, 0)));
-        assert!(range.contains_v4(Ipv4Addr::new(255, 255, 255, 255)));
-        assert!(range.contains_v4(Ipv4Addr::new(192, 168, 1, 1)));
-    }
-
-    #[tokio::test]
-    async fn build_excluded_ranges_from_exclusive_zones() {
-        use crate::config::{RouteType, ZoneConfig};
-
-        let zones = vec![
-            ZoneConfig {
-                name: "vpn-catchall".to_string(),
-                mode: ZoneMode::Exclusive,
-                dns_servers: vec![],
-                dns_protocol: crate::config::DnsProtocol::Udp,
-                route_type: RouteType::Via,
-                route_target: "10.8.0.1".to_string(),
-                domains: vec![],
-                patterns: vec![],
-                static_routes: vec!["10.0.0.0/8".to_string(), "192.168.0.0/16".to_string()],
-                cache_min_ttl: None,
-                cache_max_ttl: None,
-                cache_negative_ttl: None,
-            },
-            ZoneConfig {
-                name: "normal-zone".to_string(),
-                mode: ZoneMode::Inclusive,
-                dns_servers: vec![],
-                dns_protocol: crate::config::DnsProtocol::Udp,
-                route_type: RouteType::Via,
-                route_target: "10.8.0.1".to_string(),
-                domains: vec![],
-                patterns: vec![],
-                static_routes: vec!["172.16.0.0/12".to_string()],
-                cache_min_ttl: None,
-                cache_max_ttl: None,
-                cache_negative_ttl: None,
-            },
-        ];
-
-        let rm = RouteManager::new(None, &zones).unwrap();
-
-        // Exclusive zone's static_routes should be excluded
-        assert!(rm.is_excluded(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))));
-        assert!(rm.is_excluded(IpAddr::V4(Ipv4Addr::new(10, 255, 255, 255))));
-        assert!(rm.is_excluded(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1))));
-
-        // Inclusive zone's static_routes should NOT be excluded
-        assert!(!rm.is_excluded(IpAddr::V4(Ipv4Addr::new(172, 16, 0, 1))));
-        assert!(!rm.is_excluded(IpAddr::V4(Ipv4Addr::new(172, 31, 255, 255))));
-
-        // IPv6 never excluded
-        assert!(!rm.is_excluded(IpAddr::V6("::1".parse().unwrap())));
+    fn parse_cidr_invalid_prefix() {
+        assert!(parse_cidr("10.0.0.0/33").is_err());
     }
 }

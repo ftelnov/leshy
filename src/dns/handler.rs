@@ -1,7 +1,7 @@
 use crate::config::{Config, DnsProtocol, DnsServerConfig, ServerConfig, ZoneConfig, ZoneMode};
 use crate::dns::cache::DnsCache;
 use crate::routing::RouteManager;
-use crate::zones::ZoneMatcher;
+use crate::zones::{MatchedZone, ZoneMatcher};
 use hickory_proto::op::{Message, MessageType, OpCode, ResponseCode};
 use hickory_proto::rr::RecordType;
 use hickory_server::authority::MessageResponseBuilder;
@@ -21,8 +21,7 @@ pub struct DnsHandler {
 
 impl DnsHandler {
     pub fn new(config: Config, matcher: ZoneMatcher) -> anyhow::Result<Self> {
-        let route_manager =
-            RouteManager::new(config.server.route_aggregation_prefix, &config.zones)?;
+        let route_manager = RouteManager::new(config.server.route_aggregation_prefix)?;
         let cache = Arc::new(DnsCache::new(config.server.cache_size));
 
         Ok(Self {
@@ -178,7 +177,7 @@ impl DnsHandler {
     }
 
     async fn add_routes_from_response(&self, message: &Message, qname: &str) {
-        let zone = match self.matcher.find_zone(qname) {
+        let matched_zone = match self.matcher.find_zone(qname) {
             Some(z) => z,
             None => return, // No zone match, no routing needed
         };
@@ -207,16 +206,24 @@ impl DnsHandler {
 
         // Add routes in background (don't block DNS response)
         let route_manager = Arc::clone(&self.route_manager);
-        let zone_clone = zone.clone();
         let qname = qname.to_string();
 
         tokio::spawn(async move {
             let manager = route_manager.read().await;
             for ip in ips {
-                if let Err(e) = manager.add_route(ip, &zone_clone).await {
+                // Per-zone exclusion check (exclusive zones skip IPs in their CIDR ranges)
+                if matched_zone.is_excluded(ip) {
+                    tracing::debug!(
+                        ip = %ip,
+                        zone = matched_zone.config.name,
+                        "IP is in zone's excluded range, skipping route"
+                    );
+                    continue;
+                }
+                if let Err(e) = manager.add_route(ip, &matched_zone.config).await {
                     tracing::warn!(
                         ip = %ip,
-                        zone = zone_clone.name,
+                        zone = matched_zone.config.name,
                         qname = qname,
                         error = %e,
                         "Failed to add route"
@@ -367,19 +374,24 @@ impl RequestHandler for DnsHandler {
         }
 
         // Find matching zone and determine upstream servers + protocol
-        let zone = self.matcher.find_zone(&qname);
+        let zone: Option<MatchedZone> = self.matcher.find_zone(&qname);
         let (upstreams, protocol): (Vec<(SocketAddr, Option<&DnsServerConfig>)>, DnsProtocol) =
             match &zone {
-                Some(z) if !z.dns_servers.is_empty() => {
+                Some(z) if !z.config.dns_servers.is_empty() => {
                     tracing::debug!(
                         qname = qname,
-                        zone = z.name,
-                        servers = ?z.dns_servers.iter().map(|s| s.address).collect::<Vec<_>>(),
-                        protocol = ?z.dns_protocol,
+                        zone = z.config.name,
+                        servers = ?z.config.dns_servers.iter().map(|s| s.address).collect::<Vec<_>>(),
+                        protocol = ?z.config.dns_protocol,
                         "Routing to zone DNS"
                     );
-                    let ups = z.dns_servers.iter().map(|s| (s.address, Some(s))).collect();
-                    (ups, z.dns_protocol)
+                    let ups = z
+                        .config
+                        .dns_servers
+                        .iter()
+                        .map(|s| (s.address, Some(s)))
+                        .collect();
+                    (ups, z.config.dns_protocol)
                 }
                 _ => {
                     tracing::debug!(
@@ -453,7 +465,7 @@ impl RequestHandler for DnsHandler {
                 if self.cache.is_enabled() && response.response_code() != ResponseCode::ServFail {
                     let ttl = resolve_cache_ttl(
                         server_cfg,
-                        zone.as_deref(),
+                        zone.as_ref().map(|z| z.config.as_ref()),
                         &self.config.server,
                         &response,
                     );
